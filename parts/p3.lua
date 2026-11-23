@@ -1,7 +1,3 @@
-		local hitPos = nil
-		if worldPos then
-			local okr, rayRes = pcall(function()
-				local origin = cam.CFrame.Position
 				local dir = (worldPos - origin)
 				if dir.Magnitude < 0.001 then return nil end
 				local rp = RaycastParams.new()
@@ -227,3 +223,10 @@ local function rescanSources()
 					-- build/place ремоуты полезны и для кристалла тоже
 					local ln = lowerRU(d.Name)
 					if (ln:find("build", 1, true) or ln:find("place", 1, true)) and phase ~= "crystal" then
+						add("crystal", { type = t, inst = d, name = d.Name, exact = isExact(d.Name, "crystal") })
+					end
+				end
+			elseif d:IsA("ProximityPrompt") then
+				local label = tostring(d.ActionText or "") .. " " .. tostring(d.ObjectText or "")
+				local phase = classify(label)
+				if phase then

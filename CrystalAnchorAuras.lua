@@ -200,11 +200,13 @@ CONFIG.Crystal = {
 	aggroRadius = 25,
 
 	placeBlock = true,          -- сначала ставить блок (обсидиан) под кристалл
-	blockDelay = 0,             -- пауза между блоком и кристаллом (0 = сразу, кадр-в-кадр)
+	blockDelay = 0,             -- пауза между блоком и кристаллом (0 = сразу)
+	blockReuse = 4,             -- не ставить обсидиан заново N секунд, если точка та же
 	twoPhase = true,           -- поставить кристалл -> ударить/взорвать
 	twoPhaseMode = "swing",    -- swing | findAndSwing | none
 	twoPhaseDelay = 0,         -- пауза между постановкой и ударом (0 = сразу)
-	aimCamera = false,         -- поворачивать камеру к точке (нужно в некоторых играх)
+	aimCamera = true,          -- наводиться в точку как киллаура
+	smoothAim = 0.35,
 	toolClickMode = "Both",  -- Activate | VirtualClick | Both (Both = клик по позиции цели)
 	placeClick = "Right",      -- ПКМ = ставить (ЛКМ в этой игре ломает!)
 	equipDelay = 0.05,         -- пауза после экипировки инструмента
@@ -1309,19 +1311,37 @@ end
 local function fireCrystal(s, t, pos)
 	local src = pickSource("crystal")
 	if not src then return false end
-	-- фаза блока: сначала ставим обсидиан/блок под кристалл
+
+	-- наводка как киллаура: плавно в ту же точку
+	if s.aimCamera ~= false then
+		aimCamera(pos, s.smoothAim or CONFIG.KillAura.smoothAim or 0.35)
+	end
+
+	-- один обсидиан на точку, потом только кристаллы сверху
 	if s.placeBlock then
-		local bsrc = pickSource("block")
-		if bsrc then
-			activateSource(bsrc, "block", t, pos, s)
-			task.wait(s.blockDelay or 0.12)
+		local last = STATE.crystal.blockPos
+		local sameSpot = last and (last - pos).Magnitude < 1.5
+		local fresh = STATE.crystal.blockAt and (os.clock() - STATE.crystal.blockAt) < (s.blockReuse or 4)
+		if not (sameSpot and fresh) then
+			local bsrc = pickSource("block")
+			if bsrc then
+				activateSource(bsrc, "block", t, pos, s)
+				STATE.crystal.blockPos = pos
+				STATE.crystal.blockAt = os.clock()
+				local bd = s.blockDelay
+				if bd == nil then bd = 0 end
+				if bd > 0 then task.wait(bd) end
+			end
 		end
 	end
+
 	local ok = activateSource(src, "crystal", t, pos, s)
 	STATE.crystal.shots = STATE.crystal.shots + 1
 	logAction({ kind = "crystal", ok = ok, src = src.name, pos = { pos.X, pos.Y, pos.Z }, target = t.name })
 	if ok and s.twoPhase and s.twoPhaseMode ~= "none" then
-		if (s.twoPhaseDelay or 0) > 0 then task.wait(s.twoPhaseDelay) end
+		local td = s.twoPhaseDelay
+		if td == nil then td = 0 end
+		if td > 0 then task.wait(td) end
 		hitPlaced(s, t, pos)
 	end
 	return ok
@@ -1342,7 +1362,8 @@ local function fireAnchor(s, t, pos)
 			seq = "single"
 		end
 	end
-	local ct = s.chargeTime or 0.6
+	local ct = s.chargeTime
+	if ct == nil then ct = 0 end
 
 	if seq == "place_charge_attack" then
 		activateSource(src, "anchor", t, pos, s) -- 1) поставить анчор
@@ -1625,7 +1646,10 @@ local function auraLoop(kind)
 								SOURCE_INDEX[kind] = ((SOURCE_INDEX[kind] or 1) % n) + 1
 							end
 						end
-						task.wait((s.delay or 0.15) + math.random() * (s.jitter or 0))
+						local dly = s.delay; if dly == nil then dly = 0.15 end
+						local jit = s.jitter; if jit == nil then jit = 0 end
+						local waitT = dly + math.random() * jit
+						if waitT > 0 then task.wait(waitT) else RunService.Heartbeat:Wait() end
 					else
 						task.wait(0.12)
 					end
@@ -1733,7 +1757,8 @@ task.spawn(function()
 						hum:ChangeState(Enum.HumanoidStateType.Jumping)
 						pcall(function() root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, CONFIG.MaceHelper.jumpPower or 60, root.AssemblyLinearVelocity.Z) end)
 						STATE.mace.lastJump = os.clock()
-						task.wait(CONFIG.MaceHelper.fallAttackDelay or 0.15)
+						local fd = CONFIG.MaceHelper.fallAttackDelay; if fd == nil then fd = 0.15 end
+						if fd > 0 then task.wait(fd) end
 					else
 						task.wait(0.1)
 					end

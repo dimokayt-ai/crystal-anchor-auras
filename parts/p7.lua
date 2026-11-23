@@ -1,3 +1,6 @@
+			task.wait(ct)
+		end
+		activateSource(src, "anchor", t, pos, s)
 	elseif seq == "use_twice" then
 		activateSource(src, "anchor", t, pos, s)
 		task.wait(ct)

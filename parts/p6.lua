@@ -1,16 +1,3 @@
-local SRC_ARG_OK = {}
-
-local function nextArgs(phase, t, pos, s, src)
-	local vars = buildArgVariants(phase, t, pos, src)
-	local key = ((src and src.name) or "?") .. "|" .. phase
-	local idx = s.argIndex
-	if not idx then
-		-- если уже знаем удачный вариант — пробуем его первым
-		idx = SRC_ARG_OK[key]
-		if not idx then
-			idx = ARG_INDEX[phase] or 1
-			ARG_INDEX[phase] = (idx % #vars) + 1
-		end
 	end
 	idx = ((idx - 1) % #vars) + 1
 	return vars[idx], idx, key, #vars
@@ -164,19 +151,37 @@ end
 local function fireCrystal(s, t, pos)
 	local src = pickSource("crystal")
 	if not src then return false end
-	-- фаза блока: сначала ставим обсидиан/блок под кристалл
+
+	-- наводка как киллаура: плавно в ту же точку
+	if s.aimCamera ~= false then
+		aimCamera(pos, s.smoothAim or CONFIG.KillAura.smoothAim or 0.35)
+	end
+
+	-- один обсидиан на точку, потом только кристаллы сверху
 	if s.placeBlock then
-		local bsrc = pickSource("block")
-		if bsrc then
-			activateSource(bsrc, "block", t, pos, s)
-			task.wait(s.blockDelay or 0.12)
+		local last = STATE.crystal.blockPos
+		local sameSpot = last and (last - pos).Magnitude < 1.5
+		local fresh = STATE.crystal.blockAt and (os.clock() - STATE.crystal.blockAt) < (s.blockReuse or 4)
+		if not (sameSpot and fresh) then
+			local bsrc = pickSource("block")
+			if bsrc then
+				activateSource(bsrc, "block", t, pos, s)
+				STATE.crystal.blockPos = pos
+				STATE.crystal.blockAt = os.clock()
+				local bd = s.blockDelay
+				if bd == nil then bd = 0 end
+				if bd > 0 then task.wait(bd) end
+			end
 		end
 	end
+
 	local ok = activateSource(src, "crystal", t, pos, s)
 	STATE.crystal.shots = STATE.crystal.shots + 1
 	logAction({ kind = "crystal", ok = ok, src = src.name, pos = { pos.X, pos.Y, pos.Z }, target = t.name })
 	if ok and s.twoPhase and s.twoPhaseMode ~= "none" then
-		if (s.twoPhaseDelay or 0) > 0 then task.wait(s.twoPhaseDelay) end
+		local td = s.twoPhaseDelay
+		if td == nil then td = 0 end
+		if td > 0 then task.wait(td) end
 		hitPlaced(s, t, pos)
 	end
 	return ok
@@ -197,7 +202,8 @@ local function fireAnchor(s, t, pos)
 			seq = "single"
 		end
 	end
-	local ct = s.chargeTime or 0.6
+	local ct = s.chargeTime
+	if ct == nil then ct = 0 end
 
 	if seq == "place_charge_attack" then
 		activateSource(src, "anchor", t, pos, s) -- 1) поставить анчор
@@ -224,6 +230,3 @@ local function fireAnchor(s, t, pos)
 		local csrc = pickSource("charge")
 		if csrc then
 			activateSource(csrc, "charge", t, pos, s)
-			task.wait(ct)
-		end
-		activateSource(src, "anchor", t, pos, s)

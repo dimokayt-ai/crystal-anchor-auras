@@ -1,13 +1,3 @@
-			for _, d in workspace:GetDescendants() do
-				if d:IsA("Model") or d:IsA("Humanoid") or d:IsA("BasePart") then
-					consider(d, out, seen)
-				end
-			end
-		end
-	end)
-
-	-- дедупликация по корню (вложенные модели одного моба)
-	local byRoot, dedup = {}, {}
 	for _, e in ipairs(out) do
 		if e.root then
 			if not byRoot[e.root] then
@@ -227,3 +217,16 @@ local function buildArgVariants(phase, t, pos, src)
 end
 
 -- Память успешных вариантов аргументов: SRC_ARG_OK[srcName..phase] = index
+local SRC_ARG_OK = {}
+
+local function nextArgs(phase, t, pos, s, src)
+	local vars = buildArgVariants(phase, t, pos, src)
+	local key = ((src and src.name) or "?") .. "|" .. phase
+	local idx = s.argIndex
+	if not idx then
+		-- если уже знаем удачный вариант — пробуем его первым
+		idx = SRC_ARG_OK[key]
+		if not idx then
+			idx = ARG_INDEX[phase] or 1
+			ARG_INDEX[phase] = (idx % #vars) + 1
+		end

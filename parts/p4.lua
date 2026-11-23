@@ -1,10 +1,3 @@
-						add("crystal", { type = t, inst = d, name = d.Name, exact = isExact(d.Name, "crystal") })
-					end
-				end
-			elseif d:IsA("ProximityPrompt") then
-				local label = tostring(d.ActionText or "") .. " " .. tostring(d.ObjectText or "")
-				local phase = classify(label)
-				if phase then
 					add(phase, {
 						type = "prompt", inst = d,
 						name = (d.ActionText ~= "" and d.ActionText) or d.Name,
@@ -227,3 +220,13 @@ local function rescanTargets(full)
 			consider(d, out, seen)
 		end
 		if full then
+			for _, d in workspace:GetDescendants() do
+				if d:IsA("Model") or d:IsA("Humanoid") or d:IsA("BasePart") then
+					consider(d, out, seen)
+				end
+			end
+		end
+	end)
+
+	-- дедупликация по корню (вложенные модели одного моба)
+	local byRoot, dedup = {}, {}

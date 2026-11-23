@@ -22,7 +22,10 @@
 								SOURCE_INDEX[kind] = ((SOURCE_INDEX[kind] or 1) % n) + 1
 							end
 						end
-						task.wait((s.delay or 0.15) + math.random() * (s.jitter or 0))
+						local dly = s.delay; if dly == nil then dly = 0.15 end
+						local jit = s.jitter; if jit == nil then jit = 0 end
+						local waitT = dly + math.random() * jit
+						if waitT > 0 then task.wait(waitT) else RunService.Heartbeat:Wait() end
 					else
 						task.wait(0.12)
 					end
@@ -130,7 +133,8 @@ task.spawn(function()
 						hum:ChangeState(Enum.HumanoidStateType.Jumping)
 						pcall(function() root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, CONFIG.MaceHelper.jumpPower or 60, root.AssemblyLinearVelocity.Z) end)
 						STATE.mace.lastJump = os.clock()
-						task.wait(CONFIG.MaceHelper.fallAttackDelay or 0.15)
+						local fd = CONFIG.MaceHelper.fallAttackDelay; if fd == nil then fd = 0.15 end
+						if fd > 0 then task.wait(fd) end
 					else
 						task.wait(0.1)
 					end

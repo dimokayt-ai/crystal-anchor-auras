@@ -1,4 +1,3 @@
-	autoDouble = true,      -- в auto: нет заряда => активировать дважды (поставить -> подорвать)
 	chargeTime = 0,          -- пауза между установкой и зарядом/ударом (0 = сразу)
 	maxCharges = 4,         -- сколько раз закинуть светокамень (до полного заряда анчора)
 	aimCamera = false,
@@ -227,3 +226,7 @@ local function pressRightClick(worldPos)
 		sx, sy = vs.X / 2, vs.Y / 2
 		-- Для установки нужно целиться в ПОВЕРХНОСТЬ (блок), а не в воздух.
 		-- Пускаем луч от камеры через точку мира и кликаем туда, где он попадёт в блок.
+		local hitPos = nil
+		if worldPos then
+			local okr, rayRes = pcall(function()
+				local origin = cam.CFrame.Position
