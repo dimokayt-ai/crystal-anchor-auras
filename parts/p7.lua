@@ -1,3 +1,9 @@
+			local mode = s.toolClickMode or "Activate"
+			if mode == "VirtualClick" or mode == "Both" then virtualClick(target) end
+			return pcall(function() atk.inst:Activate() end)
+		end
+	-- фолбэк: бьём тем же инструментом
+	elseif s.toolClickMode ~= "none" then
 		local src = pickSource("crystal")
 		if src and src.type == "tool" then
 			local ok = ensureEquipped(src.inst)
@@ -193,9 +199,3 @@ local function updateHUD()
 	local cs = pickSource("crystal")
 	HUD.srcC.Text = ("Кристалл источник: %s  (K)"):format(
 		cs and (cs.type .. " / " .. cs.name) or "НЕ НАЙДЕН")
-	HUD.srcC.TextColor3 = cs and Color3.fromRGB(225, 225, 235)
-		or Color3.fromRGB(255, 120, 120)
-
-	local as = pickSource("anchor")
-	HUD.srcA.Text = ("Анчор источник:    %s  (K)"):format(
-		as and (as.type .. " / " .. as.name) or "НЕ НАЙДЕН")

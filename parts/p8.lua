@@ -1,3 +1,9 @@
+	HUD.srcC.TextColor3 = cs and Color3.fromRGB(225, 225, 235)
+		or Color3.fromRGB(255, 120, 120)
+
+	local as = pickSource("anchor")
+	HUD.srcA.Text = ("Анчор источник:    %s  (K)"):format(
+		as and (as.type .. " / " .. as.name) or "НЕ НАЙДЕН")
 	HUD.srcA.TextColor3 = as and Color3.fromRGB(225, 225, 235)
 		or Color3.fromRGB(255, 120, 120)
 

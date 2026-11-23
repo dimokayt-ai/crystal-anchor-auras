@@ -99,6 +99,12 @@ local function activateSource(src, phase, t, pos, s)
 		if not ok then return false end
 		local mode = s.toolClickMode or "Activate"
 		if s.aimCamera then aimCamera(pos) end
+		-- СТАВИТЬ (кристалл/анчор/блок/заряд) = ПКМ; ЛКМ в этой игре ломает!
+		-- Удар (фаза attack) остаётся ЛКМ — его и нужно ломать/подрывать.
+		local placePhase = (phase == "crystal" or phase == "anchor" or phase == "block" or phase == "charge")
+		if placePhase and (s.placeClick or "Right") == "Right" then
+			return pressRightClick(pos)
+		end
 		if mode == "VirtualClick" or mode == "Both" then
 			virtualClick(pos)
 		end
@@ -193,9 +199,3 @@ local function hitPlaced(s, t, pos)
 		local ok = ensureEquipped(atk.inst)
 		if ok then
 			if s.aimCamera then aimCamera(target) end
-			local mode = s.toolClickMode or "Activate"
-			if mode == "VirtualClick" or mode == "Both" then virtualClick(target) end
-			return pcall(function() atk.inst:Activate() end)
-		end
-	-- фолбэк: бьём тем же инструментом
-	elseif s.toolClickMode ~= "none" then
