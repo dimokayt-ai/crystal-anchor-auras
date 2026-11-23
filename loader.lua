@@ -70,12 +70,15 @@ for i = 1, COUNT do
 end
 
 bar.Size = UDim2.new(1, -16, 0, 6)
-label.Text = "Готово, запускаю..."
+label.Text = "Собираю части..."
+task.wait(0.3)
 local fn, err = loadstring(table.concat(parts))
 if not fn then
 	toast("Ошибка компиляции: " .. tostring(err), Color3.fromRGB(255, 120, 120))
 	return
 end
+label.Text = "Запуск..."
+task.wait(0.3)
 local ok, runErr = xpcall(fn, debug.traceback)
 if not ok then
 	toast("Ошибка запуска: " .. tostring(runErr), Color3.fromRGB(255, 120, 120))

@@ -156,26 +156,29 @@ task.spawn(function()
 end)
 
 -- =================================================================
--- 13. СТАРТ
+-- 13. СТАРТ (ПЛАВНЫЙ: по шагам с паузами, ничего не рвётся разом)
 -- =================================================================
 pcall(function() VirtualUser:CaptureController() end)
 do
 	local ok, err = xpcall(buildHUD, debug.traceback)
 	if not ok then showFatal(err) end
 end
-pcall(rescanTargets, true)
-pcall(rescanSources)
-pcall(sourceReport)
 pcall(updateHUD)
-if CONFIG.Scan.DumpAll then pcall(dumpWorld) end
+print("[Auras] шаг 1/4: HUD готов — жми Z (кристалл) / G (анчор)")
 
-print([[=====================================================
-CRYSTAL + ANCHOR AURAS загружены.
- Z — Crystal Aura | G — Anchor Aura
- H — пресет | K — источник | J — HUD
- Если "НЕ НАЙДЕН" — заполни CONFIG.Exact или включи
- CloneTemplates. Пресетов: ]] .. #CONFIG.Presets .. [[
-=====================================================]])
+task.delay(0.4, function()
+	pcall(rescanTargets, true)
+	print("[Auras] шаг 2/4: целей найдено: " .. #TARGETS)
+	task.delay(0.4, function()
+		pcall(rescanSources)
+		pcall(sourceReport)
+		print("[Auras] шаг 3/4: источники просканированы")
+		task.delay(0.5, function()
+			if CONFIG.Scan.DumpAll then pcall(dumpWorld) end
+			print(("[Auras] шаг 4/4: старт завершён. Пресетов: %d | Z/G/H/K/J"):format(#CONFIG.Presets))
+		end)
+	end)
+end)
 
 end, showFatal)
 if not __ok then showFatal(__err) end
