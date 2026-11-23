@@ -1,21 +1,3 @@
-			return
-		end
-		-- шаблон: клонируем в рюкзак (если разрешено и такого ещё нет)
-		if not CONFIG.Scan.CloneTemplates then return end
-		if phase == "attack" and not CONFIG.Scan.CloneAttack then return end -- без спама оружием
-		if findToolByName(tool.Name) then return end
-		if not live and tool.Parent == workspace and not CONFIG.Scan.CloneFromWorkspace then return end
-		local ok, clone = pcall(function() return tool:Clone() end)
-		if not ok or not clone then return end
-		clone.Parent = backpack
-		print(("[Auras] Шаблон склонирован в рюкзак: %s"):format(clone.Name))
-		add(phase, { type = "tool", inst = clone, name = clone.Name, exact = isExact(clone.Name, phase) })
-	end
-
-	-- 1) живые Tool'ы
-	for _, container in ipairs({ backpack, char }) do
-		if container then
-			for _, d in container:GetChildren() do
 				if d:IsA("Tool") then considerTool(d, true) end
 			end
 		end
@@ -111,32 +93,63 @@ local function pickSource(phase)
 	return nil
 end
 
--- ДИАГНОСТИКА: вывести всё, что игра предлагает (инструменты и ремоуты)
+-- ДИАГНОСТИКА: всё, что игра предлагает (инструменты, ремоуты, структура)
 local function dumpWorld()
 	pcall(function()
 		local tools, re, rf = {}, {}, {}
-		for _, d in ReplicatedStorage:GetDescendants() do
-			if d:IsA("Tool") then
-				tools[#tools + 1] = d.Name
-			elseif d:IsA("RemoteEvent") then
-				re[#re + 1] = d.Name
-			elseif d:IsA("RemoteFunction") then
-				rf[#rf + 1] = d.Name
+		local function scan(root)
+			if not root then return end
+			for _, d in root:GetDescendants() do
+				if d:IsA("Tool") then
+					tools[#tools + 1] = d.Name
+				elseif d:IsA("RemoteEvent") then
+					re[#re + 1] = d.Name
+				elseif d:IsA("RemoteFunction") then
+					rf[#rf + 1] = d.Name
+				end
 			end
 		end
-		print(("[Auras] DUMP итого: Tool=%d RemoteEvent=%d RemoteFunction=%d"):format(#tools, #re, #rf))
-		local function out(tag, arr)
-			local n = math.min(#arr, 150)
-			for i = 1, n do
-				print(("[Auras] DUMP %s: %s"):format(tag, arr[i]))
-			end
-			if #arr > n then
-				print(("[Auras] DUMP %s: ...ещё %d шт"):format(tag, #arr - n))
+		scan(ReplicatedStorage)
+		scan(player:FindFirstChild("Backpack"))
+		scan(player.Character)
+
+		local parts = {}
+		parts[#parts + 1] = ("ИТОГО Tool=%d RemoteEvent=%d RemoteFunction=%d"):format(#tools, #re, #rf)
+		local function add(tag, arr)
+			for _, n in ipairs(arr) do parts[#parts + 1] = tag .. ": " .. n end
+		end
+		add("Tool", tools)
+		add("RemoteEvent", re)
+		add("RemoteFunction", rf)
+
+		-- структура ReplicatedStorage (2 уровня) — видно системы предметов
+		for _, d in ReplicatedStorage:GetChildren() do
+			parts[#parts + 1] = "RS: " .. d.Name .. " (" .. d.ClassName .. ")"
+			if d:IsA("Folder") or d:IsA("Model") then
+				local kids = d:GetChildren()
+				for i = 1, math.min(#kids, 30) do
+					parts[#parts + 1] = "   └ " .. kids[i].Name .. " (" .. kids[i].ClassName .. ")"
+				end
+				if #kids > 30 then
+					parts[#parts + 1] = "   └ ...ещё " .. (#kids - 30)
+				end
 			end
 		end
-		out("Tool", tools)
-		out("RemoteEvent", re)
-		out("RemoteFunction", rf)
+
+		-- печать в консоль (первые 150 строк)
+		for i = 1, math.min(#parts, 150) do
+			print("[Auras] DUMP " .. parts[i])
+		end
+		if #parts > 150 then
+			print(("[Auras] DUMP ...ещё %d строк — они в буфере обмена"):format(#parts - 150))
+		end
+
+		-- копируем ВСЁ в буфер обмена: жмёшь Ctrl+V и вставляешь мне
+		if type(setclipboard) == "function" then
+			if pcall(setclipboard, "[Auras DUMP]\n" .. table.concat(parts, "\n")) then
+				print("[Auras] DUMP скопирован в буфер обмена — вставь мне (Ctrl+V)")
+			end
+		end
 	end)
 end
 
@@ -179,10 +192,3 @@ local function buildEntry(model)
 	local isPlayer = pc ~= nil
 
 	-- "узнается ли цель как враг": humanoid ИЛИ hp ИЛИ имя/тег
-	local recognized = humanoid ~= nil
-		or health ~= nil
-		or nameMatches(model.Name, P.Enemy)
-		or hasAnyTag(model, CONFIG.Targeting.Tags)
-
-	-- босс: имя | атрибут | тег | огромный MaxHealth
-	local isBoss = nameMatches(model.Name, P.Boss)

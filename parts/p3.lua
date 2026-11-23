@@ -1,15 +1,3 @@
-
-local function isExact(name, phase)
-	local l = P.Exact[phase]
-	if not l then return false end
-	local n = lowerRU(tostring(name))
-	for _, v in ipairs(l) do
-		if n == v then return true end
-	end
-	return false
-end
-
--- Чтение числа: атрибут -> Value-объект
 local function readNumber(model, keys)
 	for _, k in ipairs(keys) do
 		local v = model:GetAttribute(k)
@@ -186,3 +174,21 @@ local function rescanSources()
 		if not phase then return end
 		if live then
 			add(phase, { type = "tool", inst = tool, name = tool.Name, exact = isExact(tool.Name, phase) })
+			return
+		end
+		-- шаблон: клонируем в рюкзак (если разрешено и такого ещё нет)
+		if not CONFIG.Scan.CloneTemplates then return end
+		if phase == "attack" and not CONFIG.Scan.CloneAttack then return end -- без спама оружием
+		if findToolByName(tool.Name) then return end
+		if not live and tool.Parent == workspace and not CONFIG.Scan.CloneFromWorkspace then return end
+		local ok, clone = pcall(function() return tool:Clone() end)
+		if not ok or not clone then return end
+		clone.Parent = backpack
+		print(("[Auras] Шаблон склонирован в рюкзак: %s"):format(clone.Name))
+		add(phase, { type = "tool", inst = clone, name = clone.Name, exact = isExact(clone.Name, phase) })
+	end
+
+	-- 1) живые Tool'ы
+	for _, container in ipairs({ backpack, char }) do
+		if container then
+			for _, d in container:GetChildren() do

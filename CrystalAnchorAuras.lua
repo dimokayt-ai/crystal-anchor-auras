@@ -121,7 +121,7 @@ local CONFIG = {
 	Exact = {
 		Crystal = { "EndCrystal", "end_crystal", "Crystal", "Кристалл", "СhestCrystal" },
 		Anchor  = { "RespawnAnchor", "Anchor", "Анчор", "Якорь" },
-		Charge  = { "AnchorCharge", "Charge", "Заряд" },
+		Charge  = { "AnchorCharge", "Charge", "Заряд", "Glowstone", "Светокамень" },
 		Block   = { "Obsidian", "Обсидиан", "Block", "Блок" },
 		Attack  = { "Sword", "Katana", "Меч", "Blade", "Axe" },
 	},
@@ -199,7 +199,7 @@ CONFIG.Crystal = {
 	twoPhaseMode = "swing",    -- swing | findAndSwing | none
 	twoPhaseDelay = 0.12,      -- пауза между постановкой и ударом
 	aimCamera = false,         -- поворачивать камеру к точке (нужно в некоторых играх)
-	toolClickMode = "Activate",-- Activate | VirtualClick | Both
+	toolClickMode = "Both",  -- Activate | VirtualClick | Both (Both = клик по позиции цели)
 	equipDelay = 0.05,         -- пауза после экипировки инструмента
 	argIndex = 1,               -- 1 = фикс. арги (без ротации: ротация заставляла игру доставать пушку/фаербол); nil = ротация
 }
@@ -219,11 +219,11 @@ CONFIG.Anchor = {
 	aggroOnly = false,
 	aggroRadius = 25,
 
-	sequence = "auto",      -- auto | single | charge_then_use | use_twice
+	sequence = "auto",      -- auto | single | charge_then_use | use_twice | place_charge_attack
 	autoDouble = true,      -- в auto: нет заряда => активировать дважды (поставить -> подорвать)
 	chargeTime = 0.6,       -- пауза между установкой и подрывом/зарядом
 	aimCamera = false,
-	toolClickMode = "Activate",
+	toolClickMode = "Both",  -- клик по позиции, как при ручной установке
 	equipDelay = 0.05,
 	argIndex = 1,               -- как и у кристалла: без ротации аргов
 }
@@ -350,7 +350,7 @@ local P = {
 	Friend  = lowerList(CONFIG.Targeting.FriendlyNamePatterns),
 	Crystal = lowerList({ "crystal", "кристалл", "cryst", "end_crystal" }),
 	Anchor  = lowerList({ "anchor", "анчор", "якорь", "respawn_anchor" }),
-	Charge  = lowerList({ "charge", "заряд", "fuel", "топливо" }),
+	Charge  = lowerList({ "charge", "заряд", "fuel", "топливо", "glowstone", "светокамень", "камень света" }),
 	Block   = lowerList({ "obsidian", "обсидиан", "block", "блок", "tnt", "тнт" }),
 	Attack  = lowerList({ "sword", "меч", "katana", "blade", "axe", "топор", "weapon" }),
 	Remotes = lowerList({ "remot", "event", "net", "network", "comm" }),
@@ -675,32 +675,63 @@ local function pickSource(phase)
 	return nil
 end
 
--- ДИАГНОСТИКА: вывести всё, что игра предлагает (инструменты и ремоуты)
+-- ДИАГНОСТИКА: всё, что игра предлагает (инструменты, ремоуты, структура)
 local function dumpWorld()
 	pcall(function()
 		local tools, re, rf = {}, {}, {}
-		for _, d in ReplicatedStorage:GetDescendants() do
-			if d:IsA("Tool") then
-				tools[#tools + 1] = d.Name
-			elseif d:IsA("RemoteEvent") then
-				re[#re + 1] = d.Name
-			elseif d:IsA("RemoteFunction") then
-				rf[#rf + 1] = d.Name
+		local function scan(root)
+			if not root then return end
+			for _, d in root:GetDescendants() do
+				if d:IsA("Tool") then
+					tools[#tools + 1] = d.Name
+				elseif d:IsA("RemoteEvent") then
+					re[#re + 1] = d.Name
+				elseif d:IsA("RemoteFunction") then
+					rf[#rf + 1] = d.Name
+				end
 			end
 		end
-		print(("[Auras] DUMP итого: Tool=%d RemoteEvent=%d RemoteFunction=%d"):format(#tools, #re, #rf))
-		local function out(tag, arr)
-			local n = math.min(#arr, 150)
-			for i = 1, n do
-				print(("[Auras] DUMP %s: %s"):format(tag, arr[i]))
-			end
-			if #arr > n then
-				print(("[Auras] DUMP %s: ...ещё %d шт"):format(tag, #arr - n))
+		scan(ReplicatedStorage)
+		scan(player:FindFirstChild("Backpack"))
+		scan(player.Character)
+
+		local parts = {}
+		parts[#parts + 1] = ("ИТОГО Tool=%d RemoteEvent=%d RemoteFunction=%d"):format(#tools, #re, #rf)
+		local function add(tag, arr)
+			for _, n in ipairs(arr) do parts[#parts + 1] = tag .. ": " .. n end
+		end
+		add("Tool", tools)
+		add("RemoteEvent", re)
+		add("RemoteFunction", rf)
+
+		-- структура ReplicatedStorage (2 уровня) — видно системы предметов
+		for _, d in ReplicatedStorage:GetChildren() do
+			parts[#parts + 1] = "RS: " .. d.Name .. " (" .. d.ClassName .. ")"
+			if d:IsA("Folder") or d:IsA("Model") then
+				local kids = d:GetChildren()
+				for i = 1, math.min(#kids, 30) do
+					parts[#parts + 1] = "   └ " .. kids[i].Name .. " (" .. kids[i].ClassName .. ")"
+				end
+				if #kids > 30 then
+					parts[#parts + 1] = "   └ ...ещё " .. (#kids - 30)
+				end
 			end
 		end
-		out("Tool", tools)
-		out("RemoteEvent", re)
-		out("RemoteFunction", rf)
+
+		-- печать в консоль (первые 150 строк)
+		for i = 1, math.min(#parts, 150) do
+			print("[Auras] DUMP " .. parts[i])
+		end
+		if #parts > 150 then
+			print(("[Auras] DUMP ...ещё %d строк — они в буфере обмена"):format(#parts - 150))
+		end
+
+		-- копируем ВСЁ в буфер обмена: жмёшь Ctrl+V и вставляешь мне
+		if type(setclipboard) == "function" then
+			if pcall(setclipboard, "[Auras DUMP]\n" .. table.concat(parts, "\n")) then
+				print("[Auras] DUMP скопирован в буфер обмена — вставь мне (Ctrl+V)")
+			end
+		end
 	end)
 end
 
@@ -1162,7 +1193,9 @@ local function fireAnchor(s, t, pos)
 	if not src then return false end
 	local seq = s.sequence or "auto"
 	if seq == "auto" then
-		if #SOURCES.charge > 0 then
+		if #SOURCES.charge > 0 and #SOURCES.attack > 0 then
+			seq = "place_charge_attack" -- поставить -> зарядить светокамнем -> ударить (взрыв)
+		elseif #SOURCES.charge > 0 then
 			seq = "charge_then_use"
 		elseif s.autoDouble then
 			seq = "use_twice"
@@ -1172,7 +1205,23 @@ local function fireAnchor(s, t, pos)
 	end
 	local ct = s.chargeTime or 0.6
 
-	if seq == "charge_then_use" then
+	if seq == "place_charge_attack" then
+		activateSource(src, "anchor", t, pos, s) -- 1) поставить анчор
+		task.wait(ct)
+		local csrc = pickSource("charge")
+		if csrc then
+			activateSource(csrc, "charge", t, pos, s) -- 2) зарядить светокамнем
+			task.wait(ct)
+		end
+		-- 3) ударить по анчору -> взрыв
+		local atk = pickSource("attack")
+		if atk and atk.type == "tool" and ensureEquipped(atk.inst) then
+			if s.aimCamera then aimCamera(pos) end
+			pcall(function() atk.inst:Activate() end)
+		else
+			activateSource(src, "anchor", t, pos, s)
+		end
+	elseif seq == "charge_then_use" then
 		local csrc = pickSource("charge")
 		if csrc then
 			activateSource(csrc, "charge", t, pos, s)

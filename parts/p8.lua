@@ -1,3 +1,10 @@
+		as and (as.type .. " / " .. as.name) or "НЕ НАЙДЕН")
+	HUD.srcA.TextColor3 = as and Color3.fromRGB(225, 225, 235)
+		or Color3.fromRGB(255, 120, 120)
+
+	local tgt = STATE.crystal.target or STATE.anchor.target
+	if tgt and tgt.root and tgt.root.Parent then
+		local own = getOwnRoot()
 		local d = own and math.floor((tgt.root.Position - own.Position).Magnitude) or 0
 		local hp = tgt.health and math.floor(tgt.health) or "?"
 		local mx = tgt.maxHealth and math.floor(tgt.maxHealth) or "?"

@@ -121,7 +121,7 @@ local CONFIG = {
 	Exact = {
 		Crystal = { "EndCrystal", "end_crystal", "Crystal", "Кристалл", "СhestCrystal" },
 		Anchor  = { "RespawnAnchor", "Anchor", "Анчор", "Якорь" },
-		Charge  = { "AnchorCharge", "Charge", "Заряд" },
+		Charge  = { "AnchorCharge", "Charge", "Заряд", "Glowstone", "Светокамень" },
 		Block   = { "Obsidian", "Обсидиан", "Block", "Блок" },
 		Attack  = { "Sword", "Katana", "Меч", "Blade", "Axe" },
 	},
@@ -186,3 +186,9 @@ CONFIG.Crystal = {
 	positionMode = "Ring", -- Root | Feet | Below | Above | Behind | Own | Ring
 	priority = "Nearest",  -- Nearest | LowestHP | HighestHP | BossFirst | Finisher | Random | Threat
 	filter = "All",        -- All | Players | Mobs | Bosses | NonBoss
+	multi = false,         -- true = перебирать всех целей по кругу
+	requireLoS = false,    -- требовать прямую видимость (рейкаст)
+	finishHP = 0.3,        -- для Finisher: добивать только ниже этого % HP
+	disengageHP = nil,     -- ниже этого % своего HP аура выключается
+	aggroOnly = false,     -- бить только цели ближе aggroRadius
+	aggroRadius = 25,

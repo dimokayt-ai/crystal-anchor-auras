@@ -1,9 +1,3 @@
-	multi = false,         -- true = перебирать всех целей по кругу
-	requireLoS = false,    -- требовать прямую видимость (рейкаст)
-	finishHP = 0.3,        -- для Finisher: добивать только ниже этого % HP
-	disengageHP = nil,     -- ниже этого % своего HP аура выключается
-	aggroOnly = false,     -- бить только цели ближе aggroRadius
-	aggroRadius = 25,
 
 	placeBlock = true,          -- сначала ставить блок (обсидиан) под кристалл
 	blockDelay = 0.12,          -- пауза между блоком и кристаллом
@@ -11,7 +5,7 @@
 	twoPhaseMode = "swing",    -- swing | findAndSwing | none
 	twoPhaseDelay = 0.12,      -- пауза между постановкой и ударом
 	aimCamera = false,         -- поворачивать камеру к точке (нужно в некоторых играх)
-	toolClickMode = "Activate",-- Activate | VirtualClick | Both
+	toolClickMode = "Both",  -- Activate | VirtualClick | Both (Both = клик по позиции цели)
 	equipDelay = 0.05,         -- пауза после экипировки инструмента
 	argIndex = 1,               -- 1 = фикс. арги (без ротации: ротация заставляла игру доставать пушку/фаербол); nil = ротация
 }
@@ -31,11 +25,11 @@ CONFIG.Anchor = {
 	aggroOnly = false,
 	aggroRadius = 25,
 
-	sequence = "auto",      -- auto | single | charge_then_use | use_twice
+	sequence = "auto",      -- auto | single | charge_then_use | use_twice | place_charge_attack
 	autoDouble = true,      -- в auto: нет заряда => активировать дважды (поставить -> подорвать)
 	chargeTime = 0.6,       -- пауза между установкой и подрывом/зарядом
 	aimCamera = false,
-	toolClickMode = "Activate",
+	toolClickMode = "Both",  -- клик по позиции, как при ручной установке
 	equipDelay = 0.05,
 	argIndex = 1,               -- как и у кристалла: без ротации аргов
 }
@@ -162,7 +156,7 @@ local P = {
 	Friend  = lowerList(CONFIG.Targeting.FriendlyNamePatterns),
 	Crystal = lowerList({ "crystal", "кристалл", "cryst", "end_crystal" }),
 	Anchor  = lowerList({ "anchor", "анчор", "якорь", "respawn_anchor" }),
-	Charge  = lowerList({ "charge", "заряд", "fuel", "топливо" }),
+	Charge  = lowerList({ "charge", "заряд", "fuel", "топливо", "glowstone", "светокамень", "камень света" }),
 	Block   = lowerList({ "obsidian", "обсидиан", "block", "блок", "tnt", "тнт" }),
 	Attack  = lowerList({ "sword", "меч", "katana", "blade", "axe", "топор", "weapon" }),
 	Remotes = lowerList({ "remot", "event", "net", "network", "comm" }),
@@ -186,3 +180,15 @@ local function nameMatches(name, loweredList)
 	if type(name) ~= "string" then return false end
 	return containsAny(lowerRU(name), loweredList)
 end
+
+local function isExact(name, phase)
+	local l = P.Exact[phase]
+	if not l then return false end
+	local n = lowerRU(tostring(name))
+	for _, v in ipairs(l) do
+		if n == v then return true end
+	end
+	return false
+end
+
+-- Чтение числа: атрибут -> Value-объект

@@ -1,8 +1,3 @@
-		if src and src.type == "tool" then
-			local ok = ensureEquipped(src.inst)
-			if ok then
-				if s.aimCamera then aimCamera(target) end
-				return pcall(function() src.inst:Activate() end)
 			end
 		end
 	end
@@ -34,7 +29,9 @@ local function fireAnchor(s, t, pos)
 	if not src then return false end
 	local seq = s.sequence or "auto"
 	if seq == "auto" then
-		if #SOURCES.charge > 0 then
+		if #SOURCES.charge > 0 and #SOURCES.attack > 0 then
+			seq = "place_charge_attack" -- поставить -> зарядить светокамнем -> ударить (взрыв)
+		elseif #SOURCES.charge > 0 then
 			seq = "charge_then_use"
 		elseif s.autoDouble then
 			seq = "use_twice"
@@ -44,7 +41,23 @@ local function fireAnchor(s, t, pos)
 	end
 	local ct = s.chargeTime or 0.6
 
-	if seq == "charge_then_use" then
+	if seq == "place_charge_attack" then
+		activateSource(src, "anchor", t, pos, s) -- 1) поставить анчор
+		task.wait(ct)
+		local csrc = pickSource("charge")
+		if csrc then
+			activateSource(csrc, "charge", t, pos, s) -- 2) зарядить светокамнем
+			task.wait(ct)
+		end
+		-- 3) ударить по анчору -> взрыв
+		local atk = pickSource("attack")
+		if atk and atk.type == "tool" and ensureEquipped(atk.inst) then
+			if s.aimCamera then aimCamera(pos) end
+			pcall(function() atk.inst:Activate() end)
+		else
+			activateSource(src, "anchor", t, pos, s)
+		end
+	elseif seq == "charge_then_use" then
 		local csrc = pickSource("charge")
 		if csrc then
 			activateSource(csrc, "charge", t, pos, s)
@@ -179,10 +192,3 @@ local function updateHUD()
 
 	local as = pickSource("anchor")
 	HUD.srcA.Text = ("Анчор источник:    %s  (K)"):format(
-		as and (as.type .. " / " .. as.name) or "НЕ НАЙДЕН")
-	HUD.srcA.TextColor3 = as and Color3.fromRGB(225, 225, 235)
-		or Color3.fromRGB(255, 120, 120)
-
-	local tgt = STATE.crystal.target or STATE.anchor.target
-	if tgt and tgt.root and tgt.root.Parent then
-		local own = getOwnRoot()

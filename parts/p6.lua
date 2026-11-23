@@ -1,3 +1,4 @@
+			if ba ~= bb then return ba < bb end
 			return a._dist < b._dist
 		end)
 	elseif prio == "Threat" then
@@ -186,3 +187,8 @@ local function hitPlaced(s, t, pos)
 	-- фолбэк: бьём тем же инструментом
 	elseif s.toolClickMode ~= "none" then
 		local src = pickSource("crystal")
+		if src and src.type == "tool" then
+			local ok = ensureEquipped(src.inst)
+			if ok then
+				if s.aimCamera then aimCamera(target) end
+				return pcall(function() src.inst:Activate() end)

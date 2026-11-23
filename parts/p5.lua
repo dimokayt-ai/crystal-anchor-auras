@@ -1,3 +1,10 @@
+	local recognized = humanoid ~= nil
+		or health ~= nil
+		or nameMatches(model.Name, P.Enemy)
+		or hasAnyTag(model, CONFIG.Targeting.Tags)
+
+	-- босс: имя | атрибут | тег | огромный MaxHealth
+	local isBoss = nameMatches(model.Name, P.Boss)
 		or model:GetAttribute("IsBoss") == true
 		or model:GetAttribute("IsBoss") == 1
 		or model:GetAttribute("Boss") == true
@@ -185,4 +192,3 @@ local function selectTarget(s, ownRoot)
 		table.sort(cands, function(a, b)
 			local ba = (a.isBoss or a.isElite) and 0 or 1
 			local bb = (b.isBoss or b.isElite) and 0 or 1
-			if ba ~= bb then return ba < bb end
