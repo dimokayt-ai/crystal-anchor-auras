@@ -1217,6 +1217,36 @@ local function buildHUD()
 	stroke.Color = Color3.fromRGB(130, 100, 255)
 	stroke.Transparency = 0.4
 
+	-- HUD можно перетаскивать за любую точку (мышь/палец)
+	do
+		local dragging, dragStart, startPos
+		frame.InputBegan:Connect(function(input)
+			local t = input.UserInputType
+			if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
+				dragging = true
+				dragStart = input.Position
+				startPos = frame.Position
+			end
+		end)
+		frame.InputEnded:Connect(function(input)
+			local t = input.UserInputType
+			if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
+				dragging = false
+			end
+		end)
+		UserInputService.InputChanged:Connect(function(input)
+			if not dragging then return end
+			if not frame.Parent then dragging = false return end
+			local t = input.UserInputType
+			if t == Enum.UserInputType.MouseMovement or t == Enum.UserInputType.Touch then
+				local delta = input.Position - dragStart
+				frame.Position = UDim2.new(
+					startPos.X.Scale, startPos.X.Offset + delta.X,
+					startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+			end
+		end)
+	end
+
 	local title = Instance.new("TextLabel")
 	title.Size = UDim2.new(1, -16, 0, 24)
 	title.Position = UDim2.fromOffset(8, 6)
