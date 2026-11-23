@@ -123,8 +123,8 @@ local CONFIG = {
 	-- Точные имена из DUMP твоей игры (заполнены по реальному дампу)
 	Exact = {
 		Crystal = { "End Crystal", "EndCrystal", "end_crystal", "Crystal", "Кристалл" },
-		Anchor  = { "RespawnAnchor", "Respawn Anchor", "Anchor", "Анчор", "Якорь" },
-		Charge  = { "Glowstone", "AnchorCharge", "Charge", "Заряд", "Светокамень" },
+		Anchor  = { "Anchor", "Анчор", "Якорь" }, -- ТОЛЬКО Tool! (RespawnAnchor-ремоут больше не используется)
+		Charge  = { "Glowstone", "AnchorCharge", "Заряд", "Светокамень" }, -- без простого "Charge" (иначе ловит Fire Charge/Orbital Strike Charge!)
 		Block   = { "Block", "Cobblestone", "Obsidian", "Обсидиан", "Блок" },
 		Attack  = { "Sword", "Katana", "Меч", "Blade", "Axe", "Netherite Sword", "Attack", "Swing" },
 	},
@@ -193,3 +193,9 @@ CONFIG.Crystal = {
 	requireLoS = false,    -- требовать прямую видимость (рейкаст)
 	finishHP = 0.3,        -- для Finisher: добивать только ниже этого % HP
 	disengageHP = nil,     -- ниже этого % своего HP аура выключается
+	aggroOnly = false,     -- бить только цели ближе aggroRadius
+	aggroRadius = 25,
+
+	placeBlock = true,          -- сначала ставить блок (обсидиан) под кристалл
+	blockDelay = 0,             -- пауза между блоком и кристаллом (0 = сразу, кадр-в-кадр)
+	twoPhase = true,           -- поставить кристалл -> ударить/взорвать

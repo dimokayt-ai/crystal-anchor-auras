@@ -1,3 +1,11 @@
+		local src = pickSource("crystal")
+		if src and src.type == "tool" then
+			local ok = ensureEquipped(src.inst)
+			if ok then
+				if s.aimCamera then aimCamera(target) end
+				return pcall(function() src.inst:Activate() end)
+			end
+		end
 	end
 	return false
 end
@@ -191,5 +199,3 @@ local function updateHUD()
 	local as = pickSource("anchor")
 	HUD.srcA.Text = ("Анчор источник:    %s  (K)"):format(
 		as and (as.type .. " / " .. as.name) or "НЕ НАЙДЕН")
-	HUD.srcA.TextColor3 = as and Color3.fromRGB(225, 225, 235)
-		or Color3.fromRGB(255, 120, 120)

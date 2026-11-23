@@ -1,3 +1,17 @@
+		cands = fin
+	elseif prio == "LowestHP" then
+		table.sort(cands, function(a, b)
+			return (a.health or math.huge) < (b.health or math.huge)
+		end)
+	elseif prio == "HighestHP" then
+		table.sort(cands, function(a, b)
+			return (a.health or 0) > (b.health or 0)
+		end)
+	elseif prio == "BossFirst" then
+		table.sort(cands, function(a, b)
+			local ba = (a.isBoss or a.isElite) and 0 or 1
+			local bb = (b.isBoss or b.isElite) and 0 or 1
+			if ba ~= bb then return ba < bb end
 			return a._dist < b._dist
 		end)
 	elseif prio == "Threat" then
@@ -185,11 +199,3 @@ local function hitPlaced(s, t, pos)
 		end
 	-- фолбэк: бьём тем же инструментом
 	elseif s.toolClickMode ~= "none" then
-		local src = pickSource("crystal")
-		if src and src.type == "tool" then
-			local ok = ensureEquipped(src.inst)
-			if ok then
-				if s.aimCamera then aimCamera(target) end
-				return pcall(function() src.inst:Activate() end)
-			end
-		end

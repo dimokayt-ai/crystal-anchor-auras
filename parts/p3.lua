@@ -1,14 +1,3 @@
--- Чтение числа: атрибут -> Value-объект
-local function readNumber(model, keys)
-	for _, k in ipairs(keys) do
-		local v = model:GetAttribute(k)
-		if type(v) == "number" then return v end
-	end
-	for _, k in ipairs(keys) do
-		local c = model:FindFirstChild(k)
-		if c and (c:IsA("NumberValue") or c:IsA("IntValue")) then
-			return c.Value
-		end
 	end
 	return nil
 end
@@ -65,7 +54,7 @@ local function aimCamera(pos)
 	return ok
 end
 
--- Клик мышью по экранной позиции точки (VirtualUser)
+-- Клик мышью по экранной позиции точки (VirtualUser) — ЛКМ (сломать/удар)
 local function virtualClick(worldPos)
 	local cam = workspace.CurrentCamera
 	if not cam then return false end
@@ -75,6 +64,47 @@ local function virtualClick(worldPos)
 		VirtualUser:ClickButton1(Vector2.new(vp.X, vp.Y))
 	end)
 	return ok
+end
+
+-- ПКМ по точке: в этих играх ПКМ = установка, ЛКМ = сломать
+local function pressRightClick(worldPos)
+	local cam = workspace.CurrentCamera
+	local sx, sy = 0, 0
+	if cam then
+		local vs = cam.ViewportSize
+		sx, sy = vs.X / 2, vs.Y / 2
+		if worldPos then
+			local okv, vp = pcall(function() return cam:WorldToViewportPoint(worldPos) end)
+			-- точка перед камерой и в экране — кликаем по ней, иначе в центр
+			if okv and vp and vp.Z > 0 and vp.X >= 0 and vp.X <= vs.X and vp.Y >= 0 and vp.Y <= vs.Y then
+				sx, sy = vp.X, vp.Y
+			end
+		end
+	end
+	-- 1) VirtualInputManager: кнопка 1 = правая (надёжнее всего в экзекьюторах)
+	local ok = pcall(function()
+		local VIM = game:GetService("VirtualInputManager")
+		VIM:SendMouseButtonEvent(sx, sy, 1, true, game, 1)
+		task.wait(0.03)
+		VIM:SendMouseButtonEvent(sx, sy, 1, false, game, 1)
+	end)
+	if ok then return true end
+	-- 2) хелперы экзекьютора
+	if type(mouse2click) == "function" and pcall(mouse2click) then return true end
+	if type(mouse2down) == "function" and type(mouse2up) == "function" then
+		if pcall(mouse2down) then
+			task.wait(0.03)
+			pcall(mouse2up)
+			return true
+		end
+	end
+	-- 3) последний шанс: тот же VirtualUser, но Button2Down/Up
+	return pcall(function()
+		VirtualUser:CaptureController()
+		VirtualUser:Button2Down(Vector2.new(sx, sy))
+		task.wait(0.03)
+		VirtualUser:Button2Up(Vector2.new(sx, sy))
+	end)
 end
 
 -- Прямая видимость до цели
@@ -164,32 +194,8 @@ local function rescanSources()
 
 	local function add(phase, src)
 		if not phase or not lists[phase] then return end
+		-- анчор: ТОЛЬКО Tool (никаких RemoteEvent/промптов/модулей)
+		if phase == "anchor" and src.type ~= "tool" then return end
 		if seen[src.inst] then return end
 		seen[src.inst] = true
 		src.score = scoreSource(src.name, src.type, src.exact)
-		table.insert(lists[phase], src)
-	end
-
-	local function considerTool(tool, live)
-		local phase = classify(tool.Name)
-		if not phase then return end
-		if live then
-			add(phase, { type = "tool", inst = tool, name = tool.Name, exact = isExact(tool.Name, phase) })
-			return
-		end
-		-- шаблон: клонируем в рюкзак (если разрешено и такого ещё нет)
-		if not CONFIG.Scan.CloneTemplates then return end
-		if phase == "attack" and not CONFIG.Scan.CloneAttack then return end -- без спама оружием
-		if findToolByName(tool.Name) then return end
-		if not live and tool.Parent == workspace and not CONFIG.Scan.CloneFromWorkspace then return end
-		local ok, clone = pcall(function() return tool:Clone() end)
-		if not ok or not clone then return end
-		clone.Parent = backpack
-		print(("[Auras] Шаблон склонирован в рюкзак: %s"):format(clone.Name))
-		add(phase, { type = "tool", inst = clone, name = clone.Name, exact = isExact(clone.Name, phase) })
-	end
-
-	-- 1) живые Tool'ы
-	for _, container in ipairs({ backpack, char }) do
-		if container then
-			for _, d in container:GetChildren() do

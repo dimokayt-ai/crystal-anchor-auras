@@ -1,3 +1,23 @@
+	if not root then root = model.PrimaryPart end
+	if not root and humanoid then root = humanoid:FindFirstChildWhichIsA("BasePart", true) end
+	if not root then root = model:FindFirstChildWhichIsA("BasePart", true) end
+	if not root and model:IsA("BasePart") then root = model end -- Part-моб (сама деталь с HP)
+	if not root then return nil end
+
+	-- HP: humanoid -> атрибуты -> Value-объекты
+	local health, maxHealth = nil, nil
+	if humanoid then
+		health = humanoid.Health
+		maxHealth = humanoid.MaxHealth
+	end
+	if health == nil then health = readNumber(model, { "Health", "HP", "health", "hp" }) end
+	if maxHealth == nil then maxHealth = readNumber(model, { "MaxHealth", "MaxHP", "Health", "HP" }) end
+	if maxHealth and health and health > maxHealth then maxHealth = health end
+
+	local pc = Players:GetPlayerFromCharacter(model)
+	local isPlayer = pc ~= nil
+
+	-- "узнается ли цель как враг": humanoid ИЛИ hp ИЛИ имя/тег
 	local recognized = humanoid ~= nil
 		or health ~= nil
 		or nameMatches(model.Name, P.Enemy)
@@ -179,17 +199,3 @@ local function selectTarget(s, ownRoot)
 		table.sort(fin, function(a, b)
 			return (a.health or 0) < (b.health or 0)
 		end)
-		cands = fin
-	elseif prio == "LowestHP" then
-		table.sort(cands, function(a, b)
-			return (a.health or math.huge) < (b.health or math.huge)
-		end)
-	elseif prio == "HighestHP" then
-		table.sort(cands, function(a, b)
-			return (a.health or 0) > (b.health or 0)
-		end)
-	elseif prio == "BossFirst" then
-		table.sort(cands, function(a, b)
-			local ba = (a.isBoss or a.isElite) and 0 or 1
-			local bb = (b.isBoss or b.isElite) and 0 or 1
-			if ba ~= bb then return ba < bb end

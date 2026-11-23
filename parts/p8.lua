@@ -1,3 +1,5 @@
+	HUD.srcA.TextColor3 = as and Color3.fromRGB(225, 225, 235)
+		or Color3.fromRGB(255, 120, 120)
 
 	local tgt = STATE.crystal.target or STATE.anchor.target
 	if tgt and tgt.root and tgt.root.Parent then

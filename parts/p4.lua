@@ -1,3 +1,29 @@
+		table.insert(lists[phase], src)
+	end
+
+	local function considerTool(tool, live)
+		local phase = classify(tool.Name)
+		if not phase then return end
+		if live then
+			add(phase, { type = "tool", inst = tool, name = tool.Name, exact = isExact(tool.Name, phase) })
+			return
+		end
+		-- шаблон: клонируем в рюкзак (если разрешено и такого ещё нет)
+		if not CONFIG.Scan.CloneTemplates then return end
+		if phase == "attack" and not CONFIG.Scan.CloneAttack then return end -- без спама оружием
+		if findToolByName(tool.Name) then return end
+		if not live and tool.Parent == workspace and not CONFIG.Scan.CloneFromWorkspace then return end
+		local ok, clone = pcall(function() return tool:Clone() end)
+		if not ok or not clone then return end
+		clone.Parent = backpack
+		print(("[Auras] Шаблон склонирован в рюкзак: %s"):format(clone.Name))
+		add(phase, { type = "tool", inst = clone, name = clone.Name, exact = isExact(clone.Name, phase) })
+	end
+
+	-- 1) живые Tool'ы
+	for _, container in ipairs({ backpack, char }) do
+		if container then
+			for _, d in container:GetChildren() do
 				if d:IsA("Tool") then considerTool(d, true) end
 			end
 		end
@@ -173,23 +199,3 @@ local function buildEntry(model)
 	if not root then root = model:FindFirstChild("Torso") end
 	if not root then root = model:FindFirstChild("RootPart") end
 	if not root then root = model:FindFirstChild("UpperTorso") end
-	if not root then root = model.PrimaryPart end
-	if not root and humanoid then root = humanoid:FindFirstChildWhichIsA("BasePart", true) end
-	if not root then root = model:FindFirstChildWhichIsA("BasePart", true) end
-	if not root and model:IsA("BasePart") then root = model end -- Part-моб (сама деталь с HP)
-	if not root then return nil end
-
-	-- HP: humanoid -> атрибуты -> Value-объекты
-	local health, maxHealth = nil, nil
-	if humanoid then
-		health = humanoid.Health
-		maxHealth = humanoid.MaxHealth
-	end
-	if health == nil then health = readNumber(model, { "Health", "HP", "health", "hp" }) end
-	if maxHealth == nil then maxHealth = readNumber(model, { "MaxHealth", "MaxHP", "Health", "HP" }) end
-	if maxHealth and health and health > maxHealth then maxHealth = health end
-
-	local pc = Players:GetPlayerFromCharacter(model)
-	local isPlayer = pc ~= nil
-
-	-- "узнается ли цель как враг": humanoid ИЛИ hp ИЛИ имя/тег

@@ -123,8 +123,8 @@ local CONFIG = {
 	-- Точные имена из DUMP твоей игры (заполнены по реальному дампу)
 	Exact = {
 		Crystal = { "End Crystal", "EndCrystal", "end_crystal", "Crystal", "Кристалл" },
-		Anchor  = { "RespawnAnchor", "Respawn Anchor", "Anchor", "Анчор", "Якорь" },
-		Charge  = { "Glowstone", "AnchorCharge", "Charge", "Заряд", "Светокамень" },
+		Anchor  = { "Anchor", "Анчор", "Якорь" }, -- ТОЛЬКО Tool! (RespawnAnchor-ремоут больше не используется)
+		Charge  = { "Glowstone", "AnchorCharge", "Заряд", "Светокамень" }, -- без простого "Charge" (иначе ловит Fire Charge/Orbital Strike Charge!)
 		Block   = { "Block", "Cobblestone", "Obsidian", "Обсидиан", "Блок" },
 		Attack  = { "Sword", "Katana", "Меч", "Blade", "Axe", "Netherite Sword", "Attack", "Swing" },
 	},
@@ -197,12 +197,13 @@ CONFIG.Crystal = {
 	aggroRadius = 25,
 
 	placeBlock = true,          -- сначала ставить блок (обсидиан) под кристалл
-	blockDelay = 0.12,          -- пауза между блоком и кристаллом
+	blockDelay = 0,             -- пауза между блоком и кристаллом (0 = сразу, кадр-в-кадр)
 	twoPhase = true,           -- поставить кристалл -> ударить/взорвать
 	twoPhaseMode = "swing",    -- swing | findAndSwing | none
-	twoPhaseDelay = 0.12,      -- пауза между постановкой и ударом
+	twoPhaseDelay = 0,         -- пауза между постановкой и ударом (0 = сразу)
 	aimCamera = false,         -- поворачивать камеру к точке (нужно в некоторых играх)
 	toolClickMode = "Both",  -- Activate | VirtualClick | Both (Both = клик по позиции цели)
+	placeClick = "Right",      -- ПКМ = ставить (ЛКМ в этой игре ломает!)
 	equipDelay = 0.05,         -- пауза после экипировки инструмента
 	argIndex = 1,               -- 1 = фикс. арги (без ротации: ротация заставляла игру доставать пушку/фаербол); nil = ротация
 }
@@ -224,7 +225,7 @@ CONFIG.Anchor = {
 
 	sequence = "auto",      -- auto | single | charge_then_use | use_twice | place_charge_attack
 	autoDouble = true,      -- в auto: нет заряда => активировать дважды (поставить -> подорвать)
-	chargeTime = 0.6,       -- пауза между установкой и подрывом/зарядом
+	chargeTime = 0,          -- пауза между установкой и зарядом/ударом (0 = сразу)
 	aimCamera = false,
 	toolClickMode = "Both",  -- клик по позиции, как при ручной установке
 	equipDelay = 0.05,
@@ -353,7 +354,7 @@ local P = {
 	Friend  = lowerList(CONFIG.Targeting.FriendlyNamePatterns),
 	Crystal = lowerList({ "crystal", "кристалл", "cryst", "end_crystal" }),
 	Anchor  = lowerList({ "anchor", "анчор", "якорь", "respawn_anchor" }),
-	Charge  = lowerList({ "charge", "заряд", "fuel", "топливо", "glowstone", "светокамень", "камень света" }),
+	Charge  = lowerList({ "заряд", "fuel", "топливо", "glowstone", "светокамень", "камень света" }), -- БЕЗ "charge": иначе фаерболлы/заряды оружия ловятся
 	Block   = lowerList({ "obsidian", "обсидиан", "block", "блок", "tnt", "тнт" }),
 	Attack  = lowerList({ "sword", "меч", "katana", "blade", "axe", "топор", "weapon", "attack", "swing", "hit", "удар" }),
 	Remotes = lowerList({ "remot", "event", "net", "network", "comm" }),
@@ -455,7 +456,7 @@ local function aimCamera(pos)
 	return ok
 end
 
--- Клик мышью по экранной позиции точки (VirtualUser)
+-- Клик мышью по экранной позиции точки (VirtualUser) — ЛКМ (сломать/удар)
 local function virtualClick(worldPos)
 	local cam = workspace.CurrentCamera
 	if not cam then return false end
@@ -465,6 +466,47 @@ local function virtualClick(worldPos)
 		VirtualUser:ClickButton1(Vector2.new(vp.X, vp.Y))
 	end)
 	return ok
+end
+
+-- ПКМ по точке: в этих играх ПКМ = установка, ЛКМ = сломать
+local function pressRightClick(worldPos)
+	local cam = workspace.CurrentCamera
+	local sx, sy = 0, 0
+	if cam then
+		local vs = cam.ViewportSize
+		sx, sy = vs.X / 2, vs.Y / 2
+		if worldPos then
+			local okv, vp = pcall(function() return cam:WorldToViewportPoint(worldPos) end)
+			-- точка перед камерой и в экране — кликаем по ней, иначе в центр
+			if okv and vp and vp.Z > 0 and vp.X >= 0 and vp.X <= vs.X and vp.Y >= 0 and vp.Y <= vs.Y then
+				sx, sy = vp.X, vp.Y
+			end
+		end
+	end
+	-- 1) VirtualInputManager: кнопка 1 = правая (надёжнее всего в экзекьюторах)
+	local ok = pcall(function()
+		local VIM = game:GetService("VirtualInputManager")
+		VIM:SendMouseButtonEvent(sx, sy, 1, true, game, 1)
+		task.wait(0.03)
+		VIM:SendMouseButtonEvent(sx, sy, 1, false, game, 1)
+	end)
+	if ok then return true end
+	-- 2) хелперы экзекьютора
+	if type(mouse2click) == "function" and pcall(mouse2click) then return true end
+	if type(mouse2down) == "function" and type(mouse2up) == "function" then
+		if pcall(mouse2down) then
+			task.wait(0.03)
+			pcall(mouse2up)
+			return true
+		end
+	end
+	-- 3) последний шанс: тот же VirtualUser, но Button2Down/Up
+	return pcall(function()
+		VirtualUser:CaptureController()
+		VirtualUser:Button2Down(Vector2.new(sx, sy))
+		task.wait(0.03)
+		VirtualUser:Button2Up(Vector2.new(sx, sy))
+	end)
 end
 
 -- Прямая видимость до цели
@@ -554,6 +596,8 @@ local function rescanSources()
 
 	local function add(phase, src)
 		if not phase or not lists[phase] then return end
+		-- анчор: ТОЛЬКО Tool (никаких RemoteEvent/промптов/модулей)
+		if phase == "anchor" and src.type ~= "tool" then return end
 		if seen[src.inst] then return end
 		seen[src.inst] = true
 		src.score = scoreSource(src.name, src.type, src.exact)

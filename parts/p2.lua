@@ -1,13 +1,8 @@
-	aggroOnly = false,     -- бить только цели ближе aggroRadius
-	aggroRadius = 25,
-
-	placeBlock = true,          -- сначала ставить блок (обсидиан) под кристалл
-	blockDelay = 0.12,          -- пауза между блоком и кристаллом
-	twoPhase = true,           -- поставить кристалл -> ударить/взорвать
 	twoPhaseMode = "swing",    -- swing | findAndSwing | none
-	twoPhaseDelay = 0.12,      -- пауза между постановкой и ударом
+	twoPhaseDelay = 0,         -- пауза между постановкой и ударом (0 = сразу)
 	aimCamera = false,         -- поворачивать камеру к точке (нужно в некоторых играх)
 	toolClickMode = "Both",  -- Activate | VirtualClick | Both (Both = клик по позиции цели)
+	placeClick = "Right",      -- ПКМ = ставить (ЛКМ в этой игре ломает!)
 	equipDelay = 0.05,         -- пауза после экипировки инструмента
 	argIndex = 1,               -- 1 = фикс. арги (без ротации: ротация заставляла игру доставать пушку/фаербол); nil = ротация
 }
@@ -29,7 +24,7 @@ CONFIG.Anchor = {
 
 	sequence = "auto",      -- auto | single | charge_then_use | use_twice | place_charge_attack
 	autoDouble = true,      -- в auto: нет заряда => активировать дважды (поставить -> подорвать)
-	chargeTime = 0.6,       -- пауза между установкой и подрывом/зарядом
+	chargeTime = 0,          -- пауза между установкой и зарядом/ударом (0 = сразу)
 	aimCamera = false,
 	toolClickMode = "Both",  -- клик по позиции, как при ручной установке
 	equipDelay = 0.05,
@@ -158,7 +153,7 @@ local P = {
 	Friend  = lowerList(CONFIG.Targeting.FriendlyNamePatterns),
 	Crystal = lowerList({ "crystal", "кристалл", "cryst", "end_crystal" }),
 	Anchor  = lowerList({ "anchor", "анчор", "якорь", "respawn_anchor" }),
-	Charge  = lowerList({ "charge", "заряд", "fuel", "топливо", "glowstone", "светокамень", "камень света" }),
+	Charge  = lowerList({ "заряд", "fuel", "топливо", "glowstone", "светокамень", "камень света" }), -- БЕЗ "charge": иначе фаерболлы/заряды оружия ловятся
 	Block   = lowerList({ "obsidian", "обсидиан", "block", "блок", "tnt", "тнт" }),
 	Attack  = lowerList({ "sword", "меч", "katana", "blade", "axe", "топор", "weapon", "attack", "swing", "hit", "удар" }),
 	Remotes = lowerList({ "remot", "event", "net", "network", "comm" }),
@@ -193,3 +188,14 @@ local function isExact(name, phase)
 	return false
 end
 
+-- Чтение числа: атрибут -> Value-объект
+local function readNumber(model, keys)
+	for _, k in ipairs(keys) do
+		local v = model:GetAttribute(k)
+		if type(v) == "number" then return v end
+	end
+	for _, k in ipairs(keys) do
+		local c = model:FindFirstChild(k)
+		if c and (c:IsA("NumberValue") or c:IsA("IntValue")) then
+			return c.Value
+		end
