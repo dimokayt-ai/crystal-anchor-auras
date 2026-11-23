@@ -1,12 +1,3 @@
-			task.wait(ct)
-		end
-		activateSource(src, "anchor", t, pos, s)
-	elseif seq == "use_twice" then
-		activateSource(src, "anchor", t, pos, s)
-		task.wait(ct)
-		activateSource(src, "anchor", t, pos, s)
-	else
-		activateSource(src, "anchor", t, pos, s)
 	end
 	STATE.anchor.shots = STATE.anchor.shots + 1
 	logAction({ kind = "anchor", seq = seq, src = src.name, charge = (pickSource("charge") or {}).name, pos = { pos.X, pos.Y, pos.Z }, target = t.name })
@@ -230,3 +221,14 @@ local function auraLoop(kind)
 			local ratio = myHpRatio()
 			if s.disengageHP and ratio and ratio < s.disengageHP then
 				st.enabled = false
+				setWarn(("HP %.0f%% < %.0f%% — %s аура выключена"):format(
+					ratio * 100, s.disengageHP * 100,
+					kind == "crystal" and "Crystal" or "Anchor"))
+			else
+				local ownRoot = getOwnRoot()
+				if ownRoot then
+					local t = selectTarget(s, ownRoot)
+					st.target = t
+					if t then
+						local pos = resolvePosition(s, t)
+						local ok = pcall(function()

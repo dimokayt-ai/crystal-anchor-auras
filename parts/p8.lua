@@ -1,14 +1,3 @@
-				setWarn(("HP %.0f%% < %.0f%% — %s аура выключена"):format(
-					ratio * 100, s.disengageHP * 100,
-					kind == "crystal" and "Crystal" or "Anchor"))
-			else
-				local ownRoot = getOwnRoot()
-				if ownRoot then
-					local t = selectTarget(s, ownRoot)
-					st.target = t
-					if t then
-						local pos = resolvePosition(s, t)
-						local ok = pcall(function()
 							if kind == "crystal" then
 								fireCrystal(s, t, pos)
 							else
@@ -92,15 +81,26 @@ task.spawn(function()
 					requireLoS = CONFIG.KillAura.requireLoS,
 					finishHP = 0.3, multi = false,
 				}
-				local t = selectTarget(s, own)
-				local isSelf = t and player.Character and (t.model == player.Character or t.root == own)
-				if isSelf then t = nil end
+				-- липкая цель: не переключаться каждый кадр (иначе камера крутится)
+				local sticky = STATE.killaura.targetObj
+				local t = nil
+				if sticky and sticky.root and sticky.root.Parent then
+					local ok, dist = isValidTarget(sticky, s, own)
+					if ok and dist <= (s.range * 1.2) then t = sticky end
+				end
+				if not t then t = selectTarget(s, own) end
+				local char = player.Character
+				local isSelf = t and char and (t.model == char or t.model:IsDescendantOf(char) or t.root == own)
+				local tooClose = t and t.root and (t.root.Position - own.Position).Magnitude < 2
+				if isSelf or tooClose then t = nil end
+				STATE.killaura.targetObj = t
 				STATE.killaura.target = t and t.name or nil
 				if t and t.root and t.root.Parent then
 					local pos = t.root.Position
 					local preferMace = STATE.mace.enabled
-					doSwingAt(pos, preferMace)
-					STATE.killaura.shots = STATE.killaura.shots + 1
+					if doSwingAt(pos, preferMace) then
+						STATE.killaura.shots = STATE.killaura.shots + 1
+					end
 					local d = (CONFIG.KillAura.delay or 0) + math.random() * (CONFIG.KillAura.jitter or 0)
 					if d > 0 then task.wait(d) else RunService.Heartbeat:Wait() end
 				else

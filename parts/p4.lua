@@ -1,6 +1,3 @@
-					add(phase, {
-						type = "prompt", inst = d,
-						name = (d.ActionText ~= "" and d.ActionText) or d.Name,
 						exact = isExact(label, phase),
 					})
 				end
@@ -230,3 +227,8 @@ local function rescanTargets(full)
 
 	-- дедупликация по корню (вложенные модели одного моба)
 	local byRoot, dedup = {}, {}
+	for _, e in ipairs(out) do
+		if e.root then
+			if not byRoot[e.root] then
+				byRoot[e.root] = true
+				dedup[#dedup + 1] = e

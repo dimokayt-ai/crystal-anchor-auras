@@ -248,7 +248,7 @@ CONFIG.KillAura = {
 	filter = "All",
 	requireLoS = false,
 	aimCamera = true,
-	smoothAim = 0.35,       -- 0..1, чем больше — тем резче; 0.35 = плавно
+	smoothAim = 0.25,       -- 0..1, чем больше — тем резче; 0.25 = плавно и стабильно
 	toolClickMode = "Activate", -- без лишних кликов мышью = быстрее и без дёрганий
 	equipDelay = 0,
 }
@@ -423,13 +423,16 @@ local function aimCamera(pos, smooth)
 	local cam = workspace.CurrentCamera
 	local root = getOwnRoot()
 	if not cam or not root or not pos then return end
-	if (pos - cam.CFrame.Position).Magnitude < 0.5 then return end
+	local from = cam.CFrame.Position
+	local dir = pos - from
+	if dir.Magnitude < 1 then return end
+	-- не крутить камеру в пол/в себя, если цель слишком близко к ногам
+	if (pos - root.Position).Magnitude < 1.5 then return end
 	local ok = pcall(function()
-		local from = cam.CFrame.Position
 		local targetCF = CFrame.lookAt(from, pos)
 		local a = tonumber(smooth)
 		if a and a > 0 and a < 1 then
-			cam.CFrame = cam.CFrame:Lerp(targetCF, a)
+			cam.CFrame = cam.CFrame:Lerp(targetCF, math.clamp(a, 0.05, 1))
 		else
 			cam.CFrame = targetCF
 		end
@@ -1716,15 +1719,26 @@ task.spawn(function()
 					requireLoS = CONFIG.KillAura.requireLoS,
 					finishHP = 0.3, multi = false,
 				}
-				local t = selectTarget(s, own)
-				local isSelf = t and player.Character and (t.model == player.Character or t.root == own)
-				if isSelf then t = nil end
+				-- липкая цель: не переключаться каждый кадр (иначе камера крутится)
+				local sticky = STATE.killaura.targetObj
+				local t = nil
+				if sticky and sticky.root and sticky.root.Parent then
+					local ok, dist = isValidTarget(sticky, s, own)
+					if ok and dist <= (s.range * 1.2) then t = sticky end
+				end
+				if not t then t = selectTarget(s, own) end
+				local char = player.Character
+				local isSelf = t and char and (t.model == char or t.model:IsDescendantOf(char) or t.root == own)
+				local tooClose = t and t.root and (t.root.Position - own.Position).Magnitude < 2
+				if isSelf or tooClose then t = nil end
+				STATE.killaura.targetObj = t
 				STATE.killaura.target = t and t.name or nil
 				if t and t.root and t.root.Parent then
 					local pos = t.root.Position
 					local preferMace = STATE.mace.enabled
-					doSwingAt(pos, preferMace)
-					STATE.killaura.shots = STATE.killaura.shots + 1
+					if doSwingAt(pos, preferMace) then
+						STATE.killaura.shots = STATE.killaura.shots + 1
+					end
 					local d = (CONFIG.KillAura.delay or 0) + math.random() * (CONFIG.KillAura.jitter or 0)
 					if d > 0 then task.wait(d) else RunService.Heartbeat:Wait() end
 				else

@@ -1,8 +1,3 @@
-	for _, e in ipairs(out) do
-		if e.root then
-			if not byRoot[e.root] then
-				byRoot[e.root] = true
-				dedup[#dedup + 1] = e
 			end
 		else
 			dedup[#dedup + 1] = e
@@ -230,3 +225,10 @@ local function nextArgs(phase, t, pos, s, src)
 			idx = ARG_INDEX[phase] or 1
 			ARG_INDEX[phase] = (idx % #vars) + 1
 		end
+	end
+	idx = ((idx - 1) % #vars) + 1
+	return vars[idx], idx, key, #vars
+end
+
+local function invokeRF(rf, args, timeout)
+	timeout = timeout or 2

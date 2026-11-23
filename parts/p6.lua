@@ -1,10 +1,3 @@
-	end
-	idx = ((idx - 1) % #vars) + 1
-	return vars[idx], idx, key, #vars
-end
-
-local function invokeRF(rf, args, timeout)
-	timeout = timeout or 2
 	local done, result = false, false
 	task.spawn(function()
 		local ok = pcall(function() return rf:InvokeServer(table.unpack(args)) end)
@@ -230,3 +223,12 @@ local function fireAnchor(s, t, pos)
 		local csrc = pickSource("charge")
 		if csrc then
 			activateSource(csrc, "charge", t, pos, s)
+			task.wait(ct)
+		end
+		activateSource(src, "anchor", t, pos, s)
+	elseif seq == "use_twice" then
+		activateSource(src, "anchor", t, pos, s)
+		task.wait(ct)
+		activateSource(src, "anchor", t, pos, s)
+	else
+		activateSource(src, "anchor", t, pos, s)

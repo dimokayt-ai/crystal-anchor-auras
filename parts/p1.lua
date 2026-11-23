@@ -230,3 +230,5 @@ CONFIG.Anchor = {
 
 	sequence = "auto",      -- auto | single | charge_then_use | use_twice | place_charge_attack
 	autoDouble = true,      -- в auto: нет заряда => активировать дважды (поставить -> подорвать)
+	chargeTime = 0,          -- пауза между установкой и зарядом/ударом (0 = сразу)
+	maxCharges = 4,         -- сколько раз закинуть светокамень (до полного заряда анчора)

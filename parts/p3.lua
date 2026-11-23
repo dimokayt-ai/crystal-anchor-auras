@@ -1,4 +1,3 @@
-				local dir = (worldPos - origin)
 				if dir.Magnitude < 0.001 then return nil end
 				local rp = RaycastParams.new()
 				rp.FilterType = Enum.RaycastFilterType.Exclude
@@ -230,3 +229,6 @@ local function rescanSources()
 				local label = tostring(d.ActionText or "") .. " " .. tostring(d.ObjectText or "")
 				local phase = classify(label)
 				if phase then
+					add(phase, {
+						type = "prompt", inst = d,
+						name = (d.ActionText ~= "" and d.ActionText) or d.Name,

@@ -1,5 +1,3 @@
-	chargeTime = 0,          -- пауза между установкой и зарядом/ударом (0 = сразу)
-	maxCharges = 4,         -- сколько раз закинуть светокамень (до полного заряда анчора)
 	aimCamera = false,
 	toolClickMode = "Both",  -- клик по позиции, как при ручной установке
 	placeClick = "Right",    -- ПКМ = ставить
@@ -16,7 +14,7 @@ CONFIG.KillAura = {
 	filter = "All",
 	requireLoS = false,
 	aimCamera = true,
-	smoothAim = 0.35,       -- 0..1, чем больше — тем резче; 0.35 = плавно
+	smoothAim = 0.25,       -- 0..1, чем больше — тем резче; 0.25 = плавно и стабильно
 	toolClickMode = "Activate", -- без лишних кликов мышью = быстрее и без дёрганий
 	equipDelay = 0,
 }
@@ -191,13 +189,16 @@ local function aimCamera(pos, smooth)
 	local cam = workspace.CurrentCamera
 	local root = getOwnRoot()
 	if not cam or not root or not pos then return end
-	if (pos - cam.CFrame.Position).Magnitude < 0.5 then return end
+	local from = cam.CFrame.Position
+	local dir = pos - from
+	if dir.Magnitude < 1 then return end
+	-- не крутить камеру в пол/в себя, если цель слишком близко к ногам
+	if (pos - root.Position).Magnitude < 1.5 then return end
 	local ok = pcall(function()
-		local from = cam.CFrame.Position
 		local targetCF = CFrame.lookAt(from, pos)
 		local a = tonumber(smooth)
 		if a and a > 0 and a < 1 then
-			cam.CFrame = cam.CFrame:Lerp(targetCF, a)
+			cam.CFrame = cam.CFrame:Lerp(targetCF, math.clamp(a, 0.05, 1))
 		else
 			cam.CFrame = targetCF
 		end
@@ -230,3 +231,4 @@ local function pressRightClick(worldPos)
 		if worldPos then
 			local okr, rayRes = pcall(function()
 				local origin = cam.CFrame.Position
+				local dir = (worldPos - origin)
