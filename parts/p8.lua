@@ -1,7 +1,3 @@
-		as and (as.type .. " / " .. as.name) or "НЕ НАЙДЕН")
-	HUD.srcA.TextColor3 = as and Color3.fromRGB(225, 225, 235)
-		or Color3.fromRGB(255, 120, 120)
-
 	local tgt = STATE.crystal.target or STATE.anchor.target
 	if tgt and tgt.root and tgt.root.Parent then
 		local own = getOwnRoot()
@@ -29,17 +25,21 @@ end
 -- =================================================================
 -- 11. КЛАВИШИ
 -- =================================================================
-GENV.AURA_CONNS[#GENV.AURA_CONNS + 1] = UserInputService.InputBegan:Connect(function(input, gpe)
-	if gpe then return end
+GENV.AURA_CONNS[#GENV.AURA_CONNS + 1] = UserInputService.InputBegan:Connect(function(input)
+	if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+	-- gpe НЕ проверяем: игры часто перехватывают наши клавиши (gpe=true),
+	-- из-за этого раньше ничего не реагировало. Реагируем, только если
+	-- открыт чат / поле ввода текста.
+	if UserInputService:GetFocusedTextBox() then return end
 	local kc = input.KeyCode
 	local K = CONFIG.Keys
 
-	if kc == K.ToggleCrystal then
+	if kc == K.ToggleCrystal or kc == K.ToggleCrystalAlt then
 		STATE.crystal.enabled = not STATE.crystal.enabled
 		STATE.crystal.shots = 0
 		STATE.crystal.target = nil
 		print(("[Auras] Crystal Aura: %s"):format(STATE.crystal.enabled and "ВКЛ" or "выкл"))
-	elseif kc == K.ToggleAnchor then
+	elseif kc == K.ToggleAnchor or kc == K.ToggleAnchorAlt then
 		STATE.anchor.enabled = not STATE.anchor.enabled
 		STATE.anchor.shots = 0
 		STATE.anchor.target = nil
@@ -189,3 +189,4 @@ end)
 
 end, showFatal)
 if not __ok then showFatal(__err) end
+

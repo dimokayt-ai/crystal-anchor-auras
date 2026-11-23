@@ -5,6 +5,7 @@
 	Клавиши:
 		Z  — вкл/выкл Crystal Aura
 		G  — вкл/выкл Anchor Aura
+		X / B — запасные клавиши (Z / G)
 		H  — смена пресета поведения
 		K  — смена найденного источника (если их несколько)
 		J  — вкл/выкл HUD
@@ -99,8 +100,10 @@ local __ok, __err = xpcall(function()
 -- =================================================================
 local CONFIG = {
 	Keys = {
-		ToggleCrystal = Enum.KeyCode.Z,   -- Crystal Aura (F обычно занят самой игрой)
+		ToggleCrystal = Enum.KeyCode.Z,   -- Crystal Aura (F обычно занят игрой)
+		ToggleCrystalAlt = Enum.KeyCode.X,-- запасная клавиша кристалла
 		ToggleAnchor  = Enum.KeyCode.G,   -- Anchor Aura
+		ToggleAnchorAlt = Enum.KeyCode.B, -- запасная клавиша анчора
 		CyclePreset   = Enum.KeyCode.H,   -- смена пресета
 		CycleSource   = Enum.KeyCode.K,   -- смена источника
 		ToggleHUD     = Enum.KeyCode.J,   -- показать/скрыть HUD
@@ -190,5 +193,3 @@ CONFIG.Crystal = {
 	requireLoS = false,    -- требовать прямую видимость (рейкаст)
 	finishHP = 0.3,        -- для Finisher: добивать только ниже этого % HP
 	disengageHP = nil,     -- ниже этого % своего HP аура выключается
-	aggroOnly = false,     -- бить только цели ближе aggroRadius
-	aggroRadius = 25,

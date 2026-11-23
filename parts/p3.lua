@@ -1,3 +1,4 @@
+-- Чтение числа: атрибут -> Value-объект
 local function readNumber(model, keys)
 	for _, k in ipairs(keys) do
 		local v = model:GetAttribute(k)

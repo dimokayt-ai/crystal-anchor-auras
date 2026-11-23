@@ -5,6 +5,7 @@
 	Клавиши:
 		Z  — вкл/выкл Crystal Aura
 		G  — вкл/выкл Anchor Aura
+		X / B — запасные клавиши (Z / G)
 		H  — смена пресета поведения
 		K  — смена найденного источника (если их несколько)
 		J  — вкл/выкл HUD
@@ -99,8 +100,10 @@ local __ok, __err = xpcall(function()
 -- =================================================================
 local CONFIG = {
 	Keys = {
-		ToggleCrystal = Enum.KeyCode.Z,   -- Crystal Aura (F обычно занят самой игрой)
+		ToggleCrystal = Enum.KeyCode.Z,   -- Crystal Aura (F обычно занят игрой)
+		ToggleCrystalAlt = Enum.KeyCode.X,-- запасная клавиша кристалла
 		ToggleAnchor  = Enum.KeyCode.G,   -- Anchor Aura
+		ToggleAnchorAlt = Enum.KeyCode.B, -- запасная клавиша анчора
 		CyclePreset   = Enum.KeyCode.H,   -- смена пресета
 		CycleSource   = Enum.KeyCode.K,   -- смена источника
 		ToggleHUD     = Enum.KeyCode.J,   -- показать/скрыть HUD
@@ -1387,17 +1390,21 @@ end
 -- =================================================================
 -- 11. КЛАВИШИ
 -- =================================================================
-GENV.AURA_CONNS[#GENV.AURA_CONNS + 1] = UserInputService.InputBegan:Connect(function(input, gpe)
-	if gpe then return end
+GENV.AURA_CONNS[#GENV.AURA_CONNS + 1] = UserInputService.InputBegan:Connect(function(input)
+	if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+	-- gpe НЕ проверяем: игры часто перехватывают наши клавиши (gpe=true),
+	-- из-за этого раньше ничего не реагировало. Реагируем, только если
+	-- открыт чат / поле ввода текста.
+	if UserInputService:GetFocusedTextBox() then return end
 	local kc = input.KeyCode
 	local K = CONFIG.Keys
 
-	if kc == K.ToggleCrystal then
+	if kc == K.ToggleCrystal or kc == K.ToggleCrystalAlt then
 		STATE.crystal.enabled = not STATE.crystal.enabled
 		STATE.crystal.shots = 0
 		STATE.crystal.target = nil
 		print(("[Auras] Crystal Aura: %s"):format(STATE.crystal.enabled and "ВКЛ" or "выкл"))
-	elseif kc == K.ToggleAnchor then
+	elseif kc == K.ToggleAnchor or kc == K.ToggleAnchorAlt then
 		STATE.anchor.enabled = not STATE.anchor.enabled
 		STATE.anchor.shots = 0
 		STATE.anchor.target = nil

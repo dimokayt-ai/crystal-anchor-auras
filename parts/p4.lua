@@ -192,3 +192,4 @@ local function buildEntry(model)
 	local isPlayer = pc ~= nil
 
 	-- "узнается ли цель как враг": humanoid ИЛИ hp ИЛИ имя/тег
+	local recognized = humanoid ~= nil

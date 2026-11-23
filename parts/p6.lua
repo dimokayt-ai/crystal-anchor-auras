@@ -1,5 +1,3 @@
-			if ba ~= bb then return ba < bb end
-			return a._dist < b._dist
 		end)
 	elseif prio == "Threat" then
 		-- ближе + толще = выше приоритет
@@ -192,3 +190,6 @@ local function hitPlaced(s, t, pos)
 			if ok then
 				if s.aimCamera then aimCamera(target) end
 				return pcall(function() src.inst:Activate() end)
+			end
+		end
+	end

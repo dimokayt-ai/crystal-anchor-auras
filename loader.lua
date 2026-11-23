@@ -72,7 +72,7 @@ end
 bar.Size = UDim2.new(1, -16, 0, 6)
 label.Text = "Собираю части..."
 task.wait(0.3)
-local fn, err = loadstring(table.concat(parts))
+local fn, err = loadstring(table.concat(parts, "\n"))
 if not fn then
 	toast("Ошибка компиляции: " .. tostring(err), Color3.fromRGB(255, 120, 120))
 	return

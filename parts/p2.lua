@@ -1,3 +1,5 @@
+	aggroOnly = false,     -- бить только цели ближе aggroRadius
+	aggroRadius = 25,
 
 	placeBlock = true,          -- сначала ставить блок (обсидиан) под кристалл
 	blockDelay = 0.12,          -- пауза между блоком и кристаллом
@@ -191,4 +193,3 @@ local function isExact(name, phase)
 	return false
 end
 
--- Чтение числа: атрибут -> Value-объект
