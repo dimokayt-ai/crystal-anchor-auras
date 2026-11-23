@@ -1,3 +1,6 @@
+		local hitPos = nil
+		if worldPos then
+			local okr, rayRes = pcall(function()
 				local origin = cam.CFrame.Position
 				local dir = (worldPos - origin)
 				if dir.Magnitude < 0.001 then return nil end

@@ -1,12 +1,3 @@
-		local st = STATE[kind]
-		local s = getSettings(kind)
-		CURRENT_SETTINGS = s
-
-		if st.enabled then
-			-- отступ при низком HP
-			local ratio = myHpRatio()
-			if s.disengageHP and ratio and ratio < s.disengageHP then
-				st.enabled = false
 				setWarn(("HP %.0f%% < %.0f%% — %s аура выключена"):format(
 					ratio * 100, s.disengageHP * 100,
 					kind == "crystal" and "Crystal" or "Anchor"))
@@ -69,9 +60,14 @@ local function doSwingAt(pos, preferMace)
 	if src.type == "tool" then
 		local ok = ensureEquipped(src.inst)
 		if not ok then return false end
-		if CONFIG.KillAura.aimCamera then aimCamera(pos) end
+		if CONFIG.KillAura.aimCamera and pos then
+			aimCamera(pos, CONFIG.KillAura.smoothAim or 0.35)
+		end
 		pcall(function() src.inst:Activate() end)
-		virtualClick(pos)
+		-- быстрый режим: без VirtualClick по экрану (он медленный и дёргает)
+		if CONFIG.KillAura.toolClickMode == "Both" or CONFIG.KillAura.toolClickMode == "VirtualClick" then
+			virtualClick(pos)
+		end
 		return true
 	end
 	if src.type == "remoteEvent" then
@@ -87,22 +83,25 @@ task.spawn(function()
 			local own = getOwnRoot()
 			if own then
 				local s = {
-					range = CONFIG.KillAura.range or 18,
+					range = CONFIG.KillAura.range or 20,
 					priority = CONFIG.KillAura.priority or "Nearest",
 					filter = CONFIG.KillAura.filter or "All",
 					requireLoS = CONFIG.KillAura.requireLoS,
 					finishHP = 0.3, multi = false,
 				}
 				local t = selectTarget(s, own)
+				local isSelf = t and player.Character and (t.model == player.Character or t.root == own)
+				if isSelf then t = nil end
 				STATE.killaura.target = t and t.name or nil
-				if t then
+				if t and t.root and t.root.Parent then
 					local pos = t.root.Position
 					local preferMace = STATE.mace.enabled
 					doSwingAt(pos, preferMace)
 					STATE.killaura.shots = STATE.killaura.shots + 1
-					task.wait((CONFIG.KillAura.delay or 0.08) + math.random() * (CONFIG.KillAura.jitter or 0.02))
+					local d = (CONFIG.KillAura.delay or 0) + math.random() * (CONFIG.KillAura.jitter or 0)
+					if d > 0 then task.wait(d) else RunService.Heartbeat:Wait() end
 				else
-					task.wait(0.12)
+					RunService.Heartbeat:Wait()
 				end
 			else
 				task.wait(0.2)

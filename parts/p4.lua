@@ -224,3 +224,6 @@ local function rescanTargets(full)
 	local out, seen = {}, {}
 	pcall(function()
 		for _, d in workspace:GetChildren() do
+			consider(d, out, seen)
+		end
+		if full then

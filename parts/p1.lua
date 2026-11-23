@@ -224,3 +224,6 @@ CONFIG.Anchor = {
 	finishHP = 0.3,
 	disengageHP = nil,
 	aggroOnly = false,
+	aggroRadius = 25,
+
+	sequence = "auto",      -- auto | single | charge_then_use | use_twice | place_charge_attack

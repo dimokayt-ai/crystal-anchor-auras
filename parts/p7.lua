@@ -1,9 +1,3 @@
-		local csrc = pickSource("charge")
-		if csrc then
-			activateSource(csrc, "charge", t, pos, s)
-			task.wait(ct)
-		end
-		activateSource(src, "anchor", t, pos, s)
 	elseif seq == "use_twice" then
 		activateSource(src, "anchor", t, pos, s)
 		task.wait(ct)
@@ -224,3 +218,12 @@ end
 local function auraLoop(kind)
 	while true do
 		if not alive() then return end
+		local st = STATE[kind]
+		local s = getSettings(kind)
+		CURRENT_SETTINGS = s
+
+		if st.enabled then
+			-- отступ при низком HP
+			local ratio = myHpRatio()
+			if s.disengageHP and ratio and ratio < s.disengageHP then
+				st.enabled = false

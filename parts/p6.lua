@@ -1,6 +1,3 @@
-end
-
--- Память успешных вариантов аргументов: SRC_ARG_OK[srcName..phase] = index
 local SRC_ARG_OK = {}
 
 local function nextArgs(phase, t, pos, s, src)
@@ -224,3 +221,9 @@ local function fireAnchor(s, t, pos)
 			activateSource(src, "anchor", t, pos, s)
 		end
 	elseif seq == "charge_then_use" then
+		local csrc = pickSource("charge")
+		if csrc then
+			activateSource(csrc, "charge", t, pos, s)
+			task.wait(ct)
+		end
+		activateSource(src, "anchor", t, pos, s)

@@ -1,6 +1,3 @@
-			consider(d, out, seen)
-		end
-		if full then
 			for _, d in workspace:GetDescendants() do
 				if d:IsA("Model") or d:IsA("Humanoid") or d:IsA("BasePart") then
 					consider(d, out, seen)
@@ -49,9 +46,12 @@ end
 local function isValidTarget(e, s, ownRoot)
 	local tc = CONFIG.Targeting
 	local model = e.model
+	local char = player.Character
 
-	if model == player.Character then return false end
+	if not model or not model.Parent then return false end
+	if char and (model == char or model:IsDescendantOf(char)) then return false end
 	if e.isPlayer and e.player == player then return false end
+	if e.root and ownRoot and e.root == ownRoot then return false end
 
 	-- своя команда
 	if tc.TeamCheck and e.isPlayer and e.player then
@@ -224,3 +224,6 @@ local function buildArgVariants(phase, t, pos, src)
 	add({ CFrame.new(pos) })
 	add({})
 	return variants
+end
+
+-- Память успешных вариантов аргументов: SRC_ARG_OK[srcName..phase] = index

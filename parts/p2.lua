@@ -1,6 +1,3 @@
-	aggroRadius = 25,
-
-	sequence = "auto",      -- auto | single | charge_then_use | use_twice | place_charge_attack
 	autoDouble = true,      -- в auto: нет заряда => активировать дважды (поставить -> подорвать)
 	chargeTime = 0,          -- пауза между установкой и зарядом/ударом (0 = сразу)
 	maxCharges = 4,         -- сколько раз закинуть светокамень (до полного заряда анчора)
@@ -13,15 +10,16 @@
 
 CONFIG.KillAura = {
 	enabled = false,
-	range = 18,
-	delay = 0.08,
-	jitter = 0.02,
+	range = 20,
+	delay = 0,              -- максимально быстро
+	jitter = 0,
 	priority = "Nearest",
 	filter = "All",
 	requireLoS = false,
 	aimCamera = true,
-	toolClickMode = "Both",
-	equipDelay = 0.03,
+	smoothAim = 0.35,       -- 0..1, чем больше — тем резче; 0.35 = плавно
+	toolClickMode = "Activate", -- без лишних кликов мышью = быстрее и без дёрганий
+	equipDelay = 0,
 }
 
 CONFIG.MaceHelper = {
@@ -189,13 +187,21 @@ local function ensureEquipped(tool)
 	return true, true
 end
 
--- Опциональный поворот камеры к точке
-local function aimCamera(pos)
+-- Опциональный поворот камеры к точке (smooth = 0..1, 1 = мгновенно)
+local function aimCamera(pos, smooth)
 	local cam = workspace.CurrentCamera
 	local root = getOwnRoot()
-	if not cam or not root then return end
+	if not cam or not root or not pos then return end
+	if (pos - cam.CFrame.Position).Magnitude < 0.5 then return end
 	local ok = pcall(function()
-		cam.CFrame = CFrame.lookAt(cam.CFrame.Position, pos)
+		local from = cam.CFrame.Position
+		local targetCF = CFrame.lookAt(from, pos)
+		local a = tonumber(smooth)
+		if a and a > 0 and a < 1 then
+			cam.CFrame = cam.CFrame:Lerp(targetCF, a)
+		else
+			cam.CFrame = targetCF
+		end
 	end)
 	return ok
 end
@@ -221,6 +227,3 @@ local function pressRightClick(worldPos)
 		sx, sy = vs.X / 2, vs.Y / 2
 		-- Для установки нужно целиться в ПОВЕРХНОСТЬ (блок), а не в воздух.
 		-- Пускаем луч от камеры через точку мира и кликаем туда, где он попадёт в блок.
-		local hitPos = nil
-		if worldPos then
-			local okr, rayRes = pcall(function()

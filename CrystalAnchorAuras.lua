@@ -239,15 +239,16 @@ CONFIG.Anchor = {
 
 CONFIG.KillAura = {
 	enabled = false,
-	range = 18,
-	delay = 0.08,
-	jitter = 0.02,
+	range = 20,
+	delay = 0,              -- максимально быстро
+	jitter = 0,
 	priority = "Nearest",
 	filter = "All",
 	requireLoS = false,
 	aimCamera = true,
-	toolClickMode = "Both",
-	equipDelay = 0.03,
+	smoothAim = 0.35,       -- 0..1, чем больше — тем резче; 0.35 = плавно
+	toolClickMode = "Activate", -- без лишних кликов мышью = быстрее и без дёрганий
+	equipDelay = 0,
 }
 
 CONFIG.MaceHelper = {
@@ -415,13 +416,21 @@ local function ensureEquipped(tool)
 	return true, true
 end
 
--- Опциональный поворот камеры к точке
-local function aimCamera(pos)
+-- Опциональный поворот камеры к точке (smooth = 0..1, 1 = мгновенно)
+local function aimCamera(pos, smooth)
 	local cam = workspace.CurrentCamera
 	local root = getOwnRoot()
-	if not cam or not root then return end
+	if not cam or not root or not pos then return end
+	if (pos - cam.CFrame.Position).Magnitude < 0.5 then return end
 	local ok = pcall(function()
-		cam.CFrame = CFrame.lookAt(cam.CFrame.Position, pos)
+		local from = cam.CFrame.Position
+		local targetCF = CFrame.lookAt(from, pos)
+		local a = tonumber(smooth)
+		if a and a > 0 and a < 1 then
+			cam.CFrame = cam.CFrame:Lerp(targetCF, a)
+		else
+			cam.CFrame = targetCF
+		end
 	end)
 	return ok
 end
@@ -953,9 +962,12 @@ end
 local function isValidTarget(e, s, ownRoot)
 	local tc = CONFIG.Targeting
 	local model = e.model
+	local char = player.Character
 
-	if model == player.Character then return false end
+	if not model or not model.Parent then return false end
+	if char and (model == char or model:IsDescendantOf(char)) then return false end
 	if e.isPlayer and e.player == player then return false end
+	if e.root and ownRoot and e.root == ownRoot then return false end
 
 	-- своя команда
 	if tc.TeamCheck and e.isPlayer and e.player then
@@ -1651,9 +1663,14 @@ local function doSwingAt(pos, preferMace)
 	if src.type == "tool" then
 		local ok = ensureEquipped(src.inst)
 		if not ok then return false end
-		if CONFIG.KillAura.aimCamera then aimCamera(pos) end
+		if CONFIG.KillAura.aimCamera and pos then
+			aimCamera(pos, CONFIG.KillAura.smoothAim or 0.35)
+		end
 		pcall(function() src.inst:Activate() end)
-		virtualClick(pos)
+		-- быстрый режим: без VirtualClick по экрану (он медленный и дёргает)
+		if CONFIG.KillAura.toolClickMode == "Both" or CONFIG.KillAura.toolClickMode == "VirtualClick" then
+			virtualClick(pos)
+		end
 		return true
 	end
 	if src.type == "remoteEvent" then
@@ -1669,22 +1686,25 @@ task.spawn(function()
 			local own = getOwnRoot()
 			if own then
 				local s = {
-					range = CONFIG.KillAura.range or 18,
+					range = CONFIG.KillAura.range or 20,
 					priority = CONFIG.KillAura.priority or "Nearest",
 					filter = CONFIG.KillAura.filter or "All",
 					requireLoS = CONFIG.KillAura.requireLoS,
 					finishHP = 0.3, multi = false,
 				}
 				local t = selectTarget(s, own)
+				local isSelf = t and player.Character and (t.model == player.Character or t.root == own)
+				if isSelf then t = nil end
 				STATE.killaura.target = t and t.name or nil
-				if t then
+				if t and t.root and t.root.Parent then
 					local pos = t.root.Position
 					local preferMace = STATE.mace.enabled
 					doSwingAt(pos, preferMace)
 					STATE.killaura.shots = STATE.killaura.shots + 1
-					task.wait((CONFIG.KillAura.delay or 0.08) + math.random() * (CONFIG.KillAura.jitter or 0.02))
+					local d = (CONFIG.KillAura.delay or 0) + math.random() * (CONFIG.KillAura.jitter or 0)
+					if d > 0 then task.wait(d) else RunService.Heartbeat:Wait() end
 				else
-					task.wait(0.12)
+					RunService.Heartbeat:Wait()
 				end
 			else
 				task.wait(0.2)
