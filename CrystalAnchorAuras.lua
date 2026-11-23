@@ -107,13 +107,14 @@ local CONFIG = {
 		CyclePreset   = Enum.KeyCode.H,   -- смена пресета
 		CycleSource   = Enum.KeyCode.K,   -- смена источника
 		ToggleHUD     = Enum.KeyCode.J,   -- показать/скрыть HUD
+		ExportLog     = Enum.KeyCode.L,   -- скопировать лог действий (датасет) в буфер
 	},
 
 	Scan = {
 		Interval      = 0.5,   -- как часто обновлять список целей (сек)
 		FullInterval  = 2.0,   -- полный обход workspace (сек)
 		SourceRescan  = 5.0,   -- перескан источников: tools/remotes (сек)
-		CloneTemplates    = true,  -- клонировать ТОЛЬКО аурные шаблоны (End Crystal/Anchor/Glowstone/Block), мечи не трогает
+		CloneTemplates    = false, -- АВТО-ВЫДАЧА ВЫКЛ: предметы сами не выдаются
 		CloneAttack       = false, -- НЕ клонировать мечи/топоры/оружия (иначе спам в инвентарь!)
 		CloneFromWorkspace = false, -- искать шаблоны Tool в workspace (дубли!)
 		DumpAll           = true,  -- вывести ВСЕ инструменты/ремоуты игры в консоль (диагностика)
@@ -132,7 +133,7 @@ local CONFIG = {
 	Targeting = {
 		Tags = { "Enemy", "Mob", "Boss", "Targetable", "NPC", "Aggro" }, -- CollectionService теги врагов
 		FriendlyTags = { "Friendly", "Ally", "Pet", "ShopNPC", "Passive" },
-		TeamCheck = true,       -- не атаковать свою команду
+		TeamCheck = false,      -- false = бить по ВСЕМ игрокам (включая "свою команду")
 		SkipOwner = true,       -- не атаковать то, что принадлежит тебе (атрибут OwnerId/Owner)
 		AllowNoHealth = true,   -- атаковать мобов без системы HP, если имя/тег совпал
 
@@ -226,8 +227,10 @@ CONFIG.Anchor = {
 	sequence = "auto",      -- auto | single | charge_then_use | use_twice | place_charge_attack
 	autoDouble = true,      -- в auto: нет заряда => активировать дважды (поставить -> подорвать)
 	chargeTime = 0,          -- пауза между установкой и зарядом/ударом (0 = сразу)
+	maxCharges = 4,         -- сколько раз закинуть светокамень (до полного заряда анчора)
 	aimCamera = false,
 	toolClickMode = "Both",  -- клик по позиции, как при ручной установке
+	placeClick = "Right",    -- ПКМ = ставить
 	equipDelay = 0.05,
 	argIndex = 1,               -- как и у кристалла: без ротации аргов
 }
@@ -238,53 +241,19 @@ CONFIG.Anchor = {
 -- =================================================================
 CONFIG.Presets = {
 	{
-		name = "Сбалансированный",
-		range = 60, delay = 0.15, jitter = 0.08,
-		priority = "Nearest", filter = "All", positionMode = "Ring",
-		disengageHP = 0.25,
-	},
-	{
 		name = "Агрессивный",
 		range = 80, delay = 0.06, jitter = 0.03,
 		priority = "Nearest", filter = "All", positionMode = "Root",
 		multi = true,
 	},
 	{
-		name = "Фарм (добивание)",
-		range = 45, delay = 0.1, jitter = 0.05,
-		priority = "Finisher", finishHP = 0.35, filter = "Mobs",
-		positionMode = "Feet",
-	},
-	{
-		name = "Охота на боссов",
-		range = 70, delay = 0.12, jitter = 0.06,
-		priority = "BossFirst", filter = "Bosses", positionMode = "Below",
-	},
-	{
-		name = "Танк-хант (криты по толстым)",
-		range = 60, delay = 0.12, jitter = 0.06,
-		priority = "HighestHP", filter = "Mobs", positionMode = "Root",
-	},
-	{
-		name = "Оборона (только рядом)",
-		range = 35, delay = 0.1, jitter = 0.05,
-		priority = "Nearest", filter = "All", positionMode = "Feet",
-		aggroOnly = true, aggroRadius = 22,
-	},
-	{
-		name = "Стелс (редко, но мимо стен)",
-		range = 90, delay = 0.5, jitter = 0.25,
-		priority = "Random", filter = "All", positionMode = "Behind",
-		requireLoS = true,
-	},
-	{
-		name = "Безопасный (отступ при HP)",
-		range = 40, delay = 0.25, jitter = 0.1,
+		name = "Сбалансированный",
+		range = 60, delay = 0.15, jitter = 0.08,
 		priority = "Nearest", filter = "All", positionMode = "Ring",
-		disengageHP = 0.5,
+		disengageHP = 0.25,
 	},
 	{
-		name = "Только PvP",
+		name = "Только PvP (игроки)",
 		range = 55, delay = 0.1, jitter = 0.05,
 		priority = "Nearest", filter = "Players", positionMode = "Root",
 	},
@@ -294,32 +263,10 @@ CONFIG.Presets = {
 		priority = "Nearest", filter = "Mobs", positionMode = "Feet",
 	},
 	{
-		name = "Гибрид PvP + мобы",
-		range = 65, delay = 0.12, jitter = 0.06,
-		priority = "Threat", filter = "All", positionMode = "Ring",
-	},
-	{
 		name = "Спам",
 		range = 50, delay = 0.03, jitter = 0,
 		priority = "Nearest", filter = "All", positionMode = "Root",
 		multi = true,
-	},
-	{
-		name = "Осторожный (анти-детект)",
-		range = 45, delay = 0.4, jitter = 0.25,
-		priority = "Nearest", filter = "All", positionMode = "Ring",
-		requireLoS = true, disengageHP = 0.3,
-	},
-	{
-		name = "Случайный хаос",
-		range = 60, delay = 0.18, jitter = 0.12,
-		priority = "Random", filter = "All", positionMode = "Ring",
-		multi = true,
-	},
-	{
-		name = "Только боссы/элита",
-		range = 75, delay = 0.1, jitter = 0.05,
-		priority = "BossFirst", filter = "Bosses", positionMode = "Below",
 	},
 }
 
@@ -475,11 +422,34 @@ local function pressRightClick(worldPos)
 	if cam then
 		local vs = cam.ViewportSize
 		sx, sy = vs.X / 2, vs.Y / 2
+		-- Для установки нужно целиться в ПОВЕРХНОСТЬ (блок), а не в воздух.
+		-- Пускаем луч от камеры через точку мира и кликаем туда, где он попадёт в блок.
+		local hitPos = nil
 		if worldPos then
-			local okv, vp = pcall(function() return cam:WorldToViewportPoint(worldPos) end)
-			-- точка перед камерой и в экране — кликаем по ней, иначе в центр
-			if okv and vp and vp.Z > 0 and vp.X >= 0 and vp.X <= vs.X and vp.Y >= 0 and vp.Y <= vs.Y then
-				sx, sy = vp.X, vp.Y
+			local okr, rayRes = pcall(function()
+				local origin = cam.CFrame.Position
+				local dir = (worldPos - origin)
+				if dir.Magnitude < 0.001 then return nil end
+				local rp = RaycastParams.new()
+				rp.FilterType = Enum.RaycastFilterType.Exclude
+				rp.FilterDescendantsInstances = { player.Character }
+				return workspace:Raycast(origin, dir.Unit * 200, rp)
+			end)
+			if okr and rayRes then hitPos = rayRes.Position end
+			-- фолбэк: луч вниз от точки (ищем блок под ней)
+			if not hitPos then
+				local okd, down = pcall(function()
+					local rp = RaycastParams.new()
+					rp.FilterType = Enum.RaycastFilterType.Exclude
+					rp.FilterDescendantsInstances = { player.Character }
+					return workspace:Raycast(worldPos + Vector3.new(0, 8, 0), Vector3.new(0, -20, 0), rp)
+				end)
+				if okd and down then hitPos = down.Position end
+			end
+			local target = hitPos or worldPos
+			local okv, vp = pcall(function() return cam:WorldToViewportPoint(target) end)
+			if okv and vp and vp.Z > 0 then
+				sx, sy = math.clamp(vp.X, 0, vs.X), math.clamp(vp.Y, 0, vs.Y)
 			end
 		end
 	end
@@ -535,7 +505,32 @@ local STATE = {
 	anchor  = { enabled = false, shots = 0, target = nil },
 	warn = nil,       -- текст предупреждения (например, низкое HP)
 	warnAt = 0,
+	log = {},         -- запись действий для "обучения"/датасета
 }
+
+-- Простой логгер действий (датасет в памяти -> по K+J или вручную можно выгрузить)
+local function logAction(entry)
+	entry.t = os.clock()
+	entry.preset = (CONFIG.Presets[PRESET_IDX] or {}).name
+	local log = STATE.log
+	log[#log + 1] = entry
+	if #log > 500 then table.remove(log, 1) end -- кольцевой буфер
+end
+
+local function exportLog()
+	local ok, Http = pcall(game.GetService, game, "HttpService")
+	local payload = { exportedAt = os.time(), entries = STATE.log }
+	local text
+	if ok and Http then
+		local ok2, j = pcall(function() return Http:JSONEncode(payload) end)
+		text = ok2 and j or tostring(#STATE.log) .. " entries"
+	else
+		text = "[AurasLog] entries=" .. tostring(#STATE.log)
+	end
+	if type(setclipboard) == "function" then pcall(setclipboard, text) end
+	print("[Auras] Лог действий (" .. #STATE.log .. " шт) скопирован в буфер/консоль")
+	return text
+end
 
 local PRESET_IDX    = 1
 local MULTI_IDX     = 1
@@ -1235,8 +1230,9 @@ local function fireCrystal(s, t, pos)
 	end
 	local ok = activateSource(src, "crystal", t, pos, s)
 	STATE.crystal.shots = STATE.crystal.shots + 1
+	logAction({ kind = "crystal", ok = ok, src = src.name, pos = { pos.X, pos.Y, pos.Z }, target = t.name })
 	if ok and s.twoPhase and s.twoPhaseMode ~= "none" then
-		task.wait(s.twoPhaseDelay or 0.12)
+		if (s.twoPhaseDelay or 0) > 0 then task.wait(s.twoPhaseDelay) end
 		hitPlaced(s, t, pos)
 	end
 	return ok
@@ -1261,11 +1257,15 @@ local function fireAnchor(s, t, pos)
 
 	if seq == "place_charge_attack" then
 		activateSource(src, "anchor", t, pos, s) -- 1) поставить анчор
-		task.wait(ct)
+		if ct > 0 then task.wait(ct) end
 		local csrc = pickSource("charge")
 		if csrc then
-			activateSource(csrc, "charge", t, pos, s) -- 2) зарядить светокамнем
-			task.wait(ct)
+			-- 2) закидывать светокамень до конца (maxCharges раз), пока не взорвётся
+			local maxC = math.max(1, tonumber(s.maxCharges) or 4)
+			for i = 1, maxC do
+				activateSource(csrc, "charge", t, pos, s)
+				if ct > 0 then task.wait(ct) end
+			end
 		end
 		-- 3) ударить по анчору -> взрыв
 		local atk = pickSource("attack")
@@ -1273,6 +1273,7 @@ local function fireAnchor(s, t, pos)
 			if s.aimCamera then aimCamera(pos) end
 			pcall(function() atk.inst:Activate() end)
 		else
+			-- нет оружия — ещё раз ПКМ по анчору (в некоторых играх это подрывает)
 			activateSource(src, "anchor", t, pos, s)
 		end
 	elseif seq == "charge_then_use" then
@@ -1290,6 +1291,7 @@ local function fireAnchor(s, t, pos)
 		activateSource(src, "anchor", t, pos, s)
 	end
 	STATE.anchor.shots = STATE.anchor.shots + 1
+	logAction({ kind = "anchor", seq = seq, src = src.name, charge = (pickSource("charge") or {}).name, pos = { pos.X, pos.Y, pos.Z }, target = t.name })
 	return true
 end
 
@@ -1427,7 +1429,7 @@ local function updateHUD()
 		HUD.target.Text = "Цель: —"
 	end
 
-	HUD.info.Text = ("Источников: C:%d A:%d бл:%d зар:%d уд:%d | цель(ей): %d | J — HUD"):format(
+	HUD.info.Text = ("Источников: C:%d A:%d бл:%d зар:%d уд:%d | цель(ей): %d | J HUD L лог"):format(
 		#SOURCES.crystal, #SOURCES.anchor, #SOURCES.block, #SOURCES.charge, #SOURCES.attack, #TARGETS)
 
 	if STATE.warn and os.clock() - STATE.warnAt < 5 then
@@ -1475,6 +1477,9 @@ GENV.AURA_CONNS[#GENV.AURA_CONNS + 1] = UserInputService.InputBegan:Connect(func
 		sourceReport()
 	elseif kc == K.ToggleHUD and HUD.gui then
 		HUD.gui.Enabled = not HUD.gui.Enabled
+	elseif kc == K.ExportLog then
+		exportLog()
+		STATE.warn, STATE.warnAt = "Лог скопирован в буфер (" .. #STATE.log .. ")", os.clock()
 	end
 end)
 
@@ -1587,7 +1592,7 @@ do
 	if not ok then showFatal(err) end
 end
 pcall(updateHUD)
-print("[Auras] шаг 1/4: HUD готов — жми Z (кристалл) / G (анчор)")
+print("[Auras] шаг 1/4: HUD готов — жми Z (кристалл) / G (анчор) / L (лог)")
 
 task.delay(0.4, function()
 	pcall(rescanTargets, true)

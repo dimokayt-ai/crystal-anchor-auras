@@ -1,13 +1,3 @@
-		cands = fin
-	elseif prio == "LowestHP" then
-		table.sort(cands, function(a, b)
-			return (a.health or math.huge) < (b.health or math.huge)
-		end)
-	elseif prio == "HighestHP" then
-		table.sort(cands, function(a, b)
-			return (a.health or 0) > (b.health or 0)
-		end)
-	elseif prio == "BossFirst" then
 		table.sort(cands, function(a, b)
 			local ba = (a.isBoss or a.isElite) and 0 or 1
 			local bb = (b.isBoss or b.isElite) and 0 or 1
@@ -199,3 +189,14 @@ local function hitPlaced(s, t, pos)
 		local ok = ensureEquipped(atk.inst)
 		if ok then
 			if s.aimCamera then aimCamera(target) end
+			local mode = s.toolClickMode or "Activate"
+			if mode == "VirtualClick" or mode == "Both" then virtualClick(target) end
+			return pcall(function() atk.inst:Activate() end)
+		end
+	-- фолбэк: бьём тем же инструментом
+	elseif s.toolClickMode ~= "none" then
+		local src = pickSource("crystal")
+		if src and src.type == "tool" then
+			local ok = ensureEquipped(src.inst)
+			if ok then
+				if s.aimCamera then aimCamera(target) end

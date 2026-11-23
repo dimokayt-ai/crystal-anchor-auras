@@ -1,14 +1,3 @@
-			local mode = s.toolClickMode or "Activate"
-			if mode == "VirtualClick" or mode == "Both" then virtualClick(target) end
-			return pcall(function() atk.inst:Activate() end)
-		end
-	-- фолбэк: бьём тем же инструментом
-	elseif s.toolClickMode ~= "none" then
-		local src = pickSource("crystal")
-		if src and src.type == "tool" then
-			local ok = ensureEquipped(src.inst)
-			if ok then
-				if s.aimCamera then aimCamera(target) end
 				return pcall(function() src.inst:Activate() end)
 			end
 		end
@@ -29,8 +18,9 @@ local function fireCrystal(s, t, pos)
 	end
 	local ok = activateSource(src, "crystal", t, pos, s)
 	STATE.crystal.shots = STATE.crystal.shots + 1
+	logAction({ kind = "crystal", ok = ok, src = src.name, pos = { pos.X, pos.Y, pos.Z }, target = t.name })
 	if ok and s.twoPhase and s.twoPhaseMode ~= "none" then
-		task.wait(s.twoPhaseDelay or 0.12)
+		if (s.twoPhaseDelay or 0) > 0 then task.wait(s.twoPhaseDelay) end
 		hitPlaced(s, t, pos)
 	end
 	return ok
@@ -55,11 +45,15 @@ local function fireAnchor(s, t, pos)
 
 	if seq == "place_charge_attack" then
 		activateSource(src, "anchor", t, pos, s) -- 1) поставить анчор
-		task.wait(ct)
+		if ct > 0 then task.wait(ct) end
 		local csrc = pickSource("charge")
 		if csrc then
-			activateSource(csrc, "charge", t, pos, s) -- 2) зарядить светокамнем
-			task.wait(ct)
+			-- 2) закидывать светокамень до конца (maxCharges раз), пока не взорвётся
+			local maxC = math.max(1, tonumber(s.maxCharges) or 4)
+			for i = 1, maxC do
+				activateSource(csrc, "charge", t, pos, s)
+				if ct > 0 then task.wait(ct) end
+			end
 		end
 		-- 3) ударить по анчору -> взрыв
 		local atk = pickSource("attack")
@@ -67,6 +61,7 @@ local function fireAnchor(s, t, pos)
 			if s.aimCamera then aimCamera(pos) end
 			pcall(function() atk.inst:Activate() end)
 		else
+			-- нет оружия — ещё раз ПКМ по анчору (в некоторых играх это подрывает)
 			activateSource(src, "anchor", t, pos, s)
 		end
 	elseif seq == "charge_then_use" then
@@ -84,6 +79,7 @@ local function fireAnchor(s, t, pos)
 		activateSource(src, "anchor", t, pos, s)
 	end
 	STATE.anchor.shots = STATE.anchor.shots + 1
+	logAction({ kind = "anchor", seq = seq, src = src.name, charge = (pickSource("charge") or {}).name, pos = { pos.X, pos.Y, pos.Z }, target = t.name })
 	return true
 end
 
@@ -199,3 +195,8 @@ local function updateHUD()
 	local cs = pickSource("crystal")
 	HUD.srcC.Text = ("Кристалл источник: %s  (K)"):format(
 		cs and (cs.type .. " / " .. cs.name) or "НЕ НАЙДЕН")
+	HUD.srcC.TextColor3 = cs and Color3.fromRGB(225, 225, 235)
+		or Color3.fromRGB(255, 120, 120)
+
+	local as = pickSource("anchor")
+	HUD.srcA.Text = ("Анчор источник:    %s  (K)"):format(

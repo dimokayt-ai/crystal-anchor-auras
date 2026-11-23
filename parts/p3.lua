@@ -1,58 +1,3 @@
-	end
-	return nil
-end
-
-local function hasAnyTag(inst, tags)
-	for _, tag in ipairs(tags or {}) do
-		local ok, res = pcall(CollectionService.HasTag, CollectionService, inst, tag)
-		if ok and res then return true end
-	end
-	return false
-end
-
-local function getOwnRoot()
-	local char = player.Character
-	if not char then return nil end
-	local hum = char:FindFirstChildOfClass("Humanoid")
-	if hum and hum.RootPart then return hum.RootPart end
-	return char:FindFirstChild("HumanoidRootPart")
-end
-
-local function myHpRatio()
-	local char = player.Character
-	local hum = char and char:FindFirstChildOfClass("Humanoid")
-	if hum and hum.MaxHealth > 0 then
-		return hum.Health / hum.MaxHealth
-	end
-	return nil
-end
-
--- Экипировка инструмента (должен быть в Backpack)
-local function ensureEquipped(tool)
-	local char = player.Character
-	if not char or not tool or not tool.Parent then return false, false end
-	local hum = char:FindFirstChildOfClass("Humanoid")
-	if not hum then return false, false end
-	if tool.Parent == char then return true, false end
-	local backpack = player:FindFirstChild("Backpack")
-	if tool.Parent ~= backpack then return false, false end
-	local ok = pcall(function() hum:EquipTool(tool) end)
-	if not ok then return false, false end
-	local delay = CURRENT_SETTINGS and CURRENT_SETTINGS.equipDelay or 0
-	if delay and delay > 0 then task.wait(delay) end
-	return true, true
-end
-
--- Опциональный поворот камеры к точке
-local function aimCamera(pos)
-	local cam = workspace.CurrentCamera
-	local root = getOwnRoot()
-	if not cam or not root then return end
-	local ok = pcall(function()
-		cam.CFrame = CFrame.lookAt(cam.CFrame.Position, pos)
-	end)
-	return ok
-end
 
 -- Клик мышью по экранной позиции точки (VirtualUser) — ЛКМ (сломать/удар)
 local function virtualClick(worldPos)
@@ -73,11 +18,34 @@ local function pressRightClick(worldPos)
 	if cam then
 		local vs = cam.ViewportSize
 		sx, sy = vs.X / 2, vs.Y / 2
+		-- Для установки нужно целиться в ПОВЕРХНОСТЬ (блок), а не в воздух.
+		-- Пускаем луч от камеры через точку мира и кликаем туда, где он попадёт в блок.
+		local hitPos = nil
 		if worldPos then
-			local okv, vp = pcall(function() return cam:WorldToViewportPoint(worldPos) end)
-			-- точка перед камерой и в экране — кликаем по ней, иначе в центр
-			if okv and vp and vp.Z > 0 and vp.X >= 0 and vp.X <= vs.X and vp.Y >= 0 and vp.Y <= vs.Y then
-				sx, sy = vp.X, vp.Y
+			local okr, rayRes = pcall(function()
+				local origin = cam.CFrame.Position
+				local dir = (worldPos - origin)
+				if dir.Magnitude < 0.001 then return nil end
+				local rp = RaycastParams.new()
+				rp.FilterType = Enum.RaycastFilterType.Exclude
+				rp.FilterDescendantsInstances = { player.Character }
+				return workspace:Raycast(origin, dir.Unit * 200, rp)
+			end)
+			if okr and rayRes then hitPos = rayRes.Position end
+			-- фолбэк: луч вниз от точки (ищем блок под ней)
+			if not hitPos then
+				local okd, down = pcall(function()
+					local rp = RaycastParams.new()
+					rp.FilterType = Enum.RaycastFilterType.Exclude
+					rp.FilterDescendantsInstances = { player.Character }
+					return workspace:Raycast(worldPos + Vector3.new(0, 8, 0), Vector3.new(0, -20, 0), rp)
+				end)
+				if okd and down then hitPos = down.Position end
+			end
+			local target = hitPos or worldPos
+			local okv, vp = pcall(function() return cam:WorldToViewportPoint(target) end)
+			if okv and vp and vp.Z > 0 then
+				sx, sy = math.clamp(vp.X, 0, vs.X), math.clamp(vp.Y, 0, vs.Y)
 			end
 		end
 	end
@@ -133,7 +101,32 @@ local STATE = {
 	anchor  = { enabled = false, shots = 0, target = nil },
 	warn = nil,       -- текст предупреждения (например, низкое HP)
 	warnAt = 0,
+	log = {},         -- запись действий для "обучения"/датасета
 }
+
+-- Простой логгер действий (датасет в памяти -> по K+J или вручную можно выгрузить)
+local function logAction(entry)
+	entry.t = os.clock()
+	entry.preset = (CONFIG.Presets[PRESET_IDX] or {}).name
+	local log = STATE.log
+	log[#log + 1] = entry
+	if #log > 500 then table.remove(log, 1) end -- кольцевой буфер
+end
+
+local function exportLog()
+	local ok, Http = pcall(game.GetService, game, "HttpService")
+	local payload = { exportedAt = os.time(), entries = STATE.log }
+	local text
+	if ok and Http then
+		local ok2, j = pcall(function() return Http:JSONEncode(payload) end)
+		text = ok2 and j or tostring(#STATE.log) .. " entries"
+	else
+		text = "[AurasLog] entries=" .. tostring(#STATE.log)
+	end
+	if type(setclipboard) == "function" then pcall(setclipboard, text) end
+	print("[Auras] Лог действий (" .. #STATE.log .. " шт) скопирован в буфер/консоль")
+	return text
+end
 
 local PRESET_IDX    = 1
 local MULTI_IDX     = 1
@@ -199,3 +192,11 @@ local function rescanSources()
 		if seen[src.inst] then return end
 		seen[src.inst] = true
 		src.score = scoreSource(src.name, src.type, src.exact)
+		table.insert(lists[phase], src)
+	end
+
+	local function considerTool(tool, live)
+		local phase = classify(tool.Name)
+		if not phase then return end
+		if live then
+			add(phase, { type = "tool", inst = tool, name = tool.Name, exact = isExact(tool.Name, phase) })

@@ -1,11 +1,3 @@
-		table.insert(lists[phase], src)
-	end
-
-	local function considerTool(tool, live)
-		local phase = classify(tool.Name)
-		if not phase then return end
-		if live then
-			add(phase, { type = "tool", inst = tool, name = tool.Name, exact = isExact(tool.Name, phase) })
 			return
 		end
 		-- шаблон: клонируем в рюкзак (если разрешено и такого ещё нет)
@@ -199,3 +191,12 @@ local function buildEntry(model)
 	if not root then root = model:FindFirstChild("Torso") end
 	if not root then root = model:FindFirstChild("RootPart") end
 	if not root then root = model:FindFirstChild("UpperTorso") end
+	if not root then root = model.PrimaryPart end
+	if not root and humanoid then root = humanoid:FindFirstChildWhichIsA("BasePart", true) end
+	if not root then root = model:FindFirstChildWhichIsA("BasePart", true) end
+	if not root and model:IsA("BasePart") then root = model end -- Part-моб (сама деталь с HP)
+	if not root then return nil end
+
+	-- HP: humanoid -> атрибуты -> Value-объекты
+	local health, maxHealth = nil, nil
+	if humanoid then

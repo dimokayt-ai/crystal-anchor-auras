@@ -1,12 +1,3 @@
-	if not root then root = model.PrimaryPart end
-	if not root and humanoid then root = humanoid:FindFirstChildWhichIsA("BasePart", true) end
-	if not root then root = model:FindFirstChildWhichIsA("BasePart", true) end
-	if not root and model:IsA("BasePart") then root = model end -- Part-моб (сама деталь с HP)
-	if not root then return nil end
-
-	-- HP: humanoid -> атрибуты -> Value-объекты
-	local health, maxHealth = nil, nil
-	if humanoid then
 		health = humanoid.Health
 		maxHealth = humanoid.MaxHealth
 	end
@@ -199,3 +190,13 @@ local function selectTarget(s, ownRoot)
 		table.sort(fin, function(a, b)
 			return (a.health or 0) < (b.health or 0)
 		end)
+		cands = fin
+	elseif prio == "LowestHP" then
+		table.sort(cands, function(a, b)
+			return (a.health or math.huge) < (b.health or math.huge)
+		end)
+	elseif prio == "HighestHP" then
+		table.sort(cands, function(a, b)
+			return (a.health or 0) > (b.health or 0)
+		end)
+	elseif prio == "BossFirst" then

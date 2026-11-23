@@ -25,8 +25,10 @@ CONFIG.Anchor = {
 	sequence = "auto",      -- auto | single | charge_then_use | use_twice | place_charge_attack
 	autoDouble = true,      -- в auto: нет заряда => активировать дважды (поставить -> подорвать)
 	chargeTime = 0,          -- пауза между установкой и зарядом/ударом (0 = сразу)
+	maxCharges = 4,         -- сколько раз закинуть светокамень (до полного заряда анчора)
 	aimCamera = false,
 	toolClickMode = "Both",  -- клик по позиции, как при ручной установке
+	placeClick = "Right",    -- ПКМ = ставить
 	equipDelay = 0.05,
 	argIndex = 1,               -- как и у кристалла: без ротации аргов
 }
@@ -37,53 +39,19 @@ CONFIG.Anchor = {
 -- =================================================================
 CONFIG.Presets = {
 	{
-		name = "Сбалансированный",
-		range = 60, delay = 0.15, jitter = 0.08,
-		priority = "Nearest", filter = "All", positionMode = "Ring",
-		disengageHP = 0.25,
-	},
-	{
 		name = "Агрессивный",
 		range = 80, delay = 0.06, jitter = 0.03,
 		priority = "Nearest", filter = "All", positionMode = "Root",
 		multi = true,
 	},
 	{
-		name = "Фарм (добивание)",
-		range = 45, delay = 0.1, jitter = 0.05,
-		priority = "Finisher", finishHP = 0.35, filter = "Mobs",
-		positionMode = "Feet",
-	},
-	{
-		name = "Охота на боссов",
-		range = 70, delay = 0.12, jitter = 0.06,
-		priority = "BossFirst", filter = "Bosses", positionMode = "Below",
-	},
-	{
-		name = "Танк-хант (криты по толстым)",
-		range = 60, delay = 0.12, jitter = 0.06,
-		priority = "HighestHP", filter = "Mobs", positionMode = "Root",
-	},
-	{
-		name = "Оборона (только рядом)",
-		range = 35, delay = 0.1, jitter = 0.05,
-		priority = "Nearest", filter = "All", positionMode = "Feet",
-		aggroOnly = true, aggroRadius = 22,
-	},
-	{
-		name = "Стелс (редко, но мимо стен)",
-		range = 90, delay = 0.5, jitter = 0.25,
-		priority = "Random", filter = "All", positionMode = "Behind",
-		requireLoS = true,
-	},
-	{
-		name = "Безопасный (отступ при HP)",
-		range = 40, delay = 0.25, jitter = 0.1,
+		name = "Сбалансированный",
+		range = 60, delay = 0.15, jitter = 0.08,
 		priority = "Nearest", filter = "All", positionMode = "Ring",
-		disengageHP = 0.5,
+		disengageHP = 0.25,
 	},
 	{
-		name = "Только PvP",
+		name = "Только PvP (игроки)",
 		range = 55, delay = 0.1, jitter = 0.05,
 		priority = "Nearest", filter = "Players", positionMode = "Root",
 	},
@@ -93,32 +61,10 @@ CONFIG.Presets = {
 		priority = "Nearest", filter = "Mobs", positionMode = "Feet",
 	},
 	{
-		name = "Гибрид PvP + мобы",
-		range = 65, delay = 0.12, jitter = 0.06,
-		priority = "Threat", filter = "All", positionMode = "Ring",
-	},
-	{
 		name = "Спам",
 		range = 50, delay = 0.03, jitter = 0,
 		priority = "Nearest", filter = "All", positionMode = "Root",
 		multi = true,
-	},
-	{
-		name = "Осторожный (анти-детект)",
-		range = 45, delay = 0.4, jitter = 0.25,
-		priority = "Nearest", filter = "All", positionMode = "Ring",
-		requireLoS = true, disengageHP = 0.3,
-	},
-	{
-		name = "Случайный хаос",
-		range = 60, delay = 0.18, jitter = 0.12,
-		priority = "Random", filter = "All", positionMode = "Ring",
-		multi = true,
-	},
-	{
-		name = "Только боссы/элита",
-		range = 75, delay = 0.1, jitter = 0.05,
-		priority = "BossFirst", filter = "Bosses", positionMode = "Below",
 	},
 }
 
@@ -199,3 +145,58 @@ local function readNumber(model, keys)
 		if c and (c:IsA("NumberValue") or c:IsA("IntValue")) then
 			return c.Value
 		end
+	end
+	return nil
+end
+
+local function hasAnyTag(inst, tags)
+	for _, tag in ipairs(tags or {}) do
+		local ok, res = pcall(CollectionService.HasTag, CollectionService, inst, tag)
+		if ok and res then return true end
+	end
+	return false
+end
+
+local function getOwnRoot()
+	local char = player.Character
+	if not char then return nil end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if hum and hum.RootPart then return hum.RootPart end
+	return char:FindFirstChild("HumanoidRootPart")
+end
+
+local function myHpRatio()
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if hum and hum.MaxHealth > 0 then
+		return hum.Health / hum.MaxHealth
+	end
+	return nil
+end
+
+-- Экипировка инструмента (должен быть в Backpack)
+local function ensureEquipped(tool)
+	local char = player.Character
+	if not char or not tool or not tool.Parent then return false, false end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if not hum then return false, false end
+	if tool.Parent == char then return true, false end
+	local backpack = player:FindFirstChild("Backpack")
+	if tool.Parent ~= backpack then return false, false end
+	local ok = pcall(function() hum:EquipTool(tool) end)
+	if not ok then return false, false end
+	local delay = CURRENT_SETTINGS and CURRENT_SETTINGS.equipDelay or 0
+	if delay and delay > 0 then task.wait(delay) end
+	return true, true
+end
+
+-- Опциональный поворот камеры к точке
+local function aimCamera(pos)
+	local cam = workspace.CurrentCamera
+	local root = getOwnRoot()
+	if not cam or not root then return end
+	local ok = pcall(function()
+		cam.CFrame = CFrame.lookAt(cam.CFrame.Position, pos)
+	end)
+	return ok
+end

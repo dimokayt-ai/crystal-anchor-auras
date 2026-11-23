@@ -107,13 +107,14 @@ local CONFIG = {
 		CyclePreset   = Enum.KeyCode.H,   -- смена пресета
 		CycleSource   = Enum.KeyCode.K,   -- смена источника
 		ToggleHUD     = Enum.KeyCode.J,   -- показать/скрыть HUD
+		ExportLog     = Enum.KeyCode.L,   -- скопировать лог действий (датасет) в буфер
 	},
 
 	Scan = {
 		Interval      = 0.5,   -- как часто обновлять список целей (сек)
 		FullInterval  = 2.0,   -- полный обход workspace (сек)
 		SourceRescan  = 5.0,   -- перескан источников: tools/remotes (сек)
-		CloneTemplates    = true,  -- клонировать ТОЛЬКО аурные шаблоны (End Crystal/Anchor/Glowstone/Block), мечи не трогает
+		CloneTemplates    = false, -- АВТО-ВЫДАЧА ВЫКЛ: предметы сами не выдаются
 		CloneAttack       = false, -- НЕ клонировать мечи/топоры/оружия (иначе спам в инвентарь!)
 		CloneFromWorkspace = false, -- искать шаблоны Tool в workspace (дубли!)
 		DumpAll           = true,  -- вывести ВСЕ инструменты/ремоуты игры в консоль (диагностика)
@@ -132,7 +133,7 @@ local CONFIG = {
 	Targeting = {
 		Tags = { "Enemy", "Mob", "Boss", "Targetable", "NPC", "Aggro" }, -- CollectionService теги врагов
 		FriendlyTags = { "Friendly", "Ally", "Pet", "ShopNPC", "Passive" },
-		TeamCheck = true,       -- не атаковать свою команду
+		TeamCheck = false,      -- false = бить по ВСЕМ игрокам (включая "свою команду")
 		SkipOwner = true,       -- не атаковать то, что принадлежит тебе (атрибут OwnerId/Owner)
 		AllowNoHealth = true,   -- атаковать мобов без системы HP, если имя/тег совпал
 

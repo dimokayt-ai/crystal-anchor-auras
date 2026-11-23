@@ -1,8 +1,3 @@
-	HUD.srcC.TextColor3 = cs and Color3.fromRGB(225, 225, 235)
-		or Color3.fromRGB(255, 120, 120)
-
-	local as = pickSource("anchor")
-	HUD.srcA.Text = ("Анчор источник:    %s  (K)"):format(
 		as and (as.type .. " / " .. as.name) or "НЕ НАЙДЕН")
 	HUD.srcA.TextColor3 = as and Color3.fromRGB(225, 225, 235)
 		or Color3.fromRGB(255, 120, 120)
@@ -20,7 +15,7 @@
 		HUD.target.Text = "Цель: —"
 	end
 
-	HUD.info.Text = ("Источников: C:%d A:%d бл:%d зар:%d уд:%d | цель(ей): %d | J — HUD"):format(
+	HUD.info.Text = ("Источников: C:%d A:%d бл:%d зар:%d уд:%d | цель(ей): %d | J HUD L лог"):format(
 		#SOURCES.crystal, #SOURCES.anchor, #SOURCES.block, #SOURCES.charge, #SOURCES.attack, #TARGETS)
 
 	if STATE.warn and os.clock() - STATE.warnAt < 5 then
@@ -68,6 +63,9 @@ GENV.AURA_CONNS[#GENV.AURA_CONNS + 1] = UserInputService.InputBegan:Connect(func
 		sourceReport()
 	elseif kc == K.ToggleHUD and HUD.gui then
 		HUD.gui.Enabled = not HUD.gui.Enabled
+	elseif kc == K.ExportLog then
+		exportLog()
+		STATE.warn, STATE.warnAt = "Лог скопирован в буфер (" .. #STATE.log .. ")", os.clock()
 	end
 end)
 
@@ -180,7 +178,7 @@ do
 	if not ok then showFatal(err) end
 end
 pcall(updateHUD)
-print("[Auras] шаг 1/4: HUD готов — жми Z (кристалл) / G (анчор)")
+print("[Auras] шаг 1/4: HUD готов — жми Z (кристалл) / G (анчор) / L (лог)")
 
 task.delay(0.4, function()
 	pcall(rescanTargets, true)
