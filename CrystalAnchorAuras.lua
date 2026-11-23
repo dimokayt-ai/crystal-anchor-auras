@@ -113,20 +113,20 @@ local CONFIG = {
 		Interval      = 0.5,   -- как часто обновлять список целей (сек)
 		FullInterval  = 2.0,   -- полный обход workspace (сек)
 		SourceRescan  = 5.0,   -- перескан источников: tools/remotes (сек)
-		CloneTemplates    = false, -- клонировать шаблоны Tool в рюкзак (выкл: клоны сыпались каждые 5 сек)
+		CloneTemplates    = true,  -- клонировать ТОЛЬКО аурные шаблоны (End Crystal/Anchor/Glowstone/Block), мечи не трогает
 		CloneAttack       = false, -- НЕ клонировать мечи/топоры/оружия (иначе спам в инвентарь!)
 		CloneFromWorkspace = false, -- искать шаблоны Tool в workspace (дубли!)
 		DumpAll           = true,  -- вывести ВСЕ инструменты/ремоуты игры в консоль (диагностика)
 		RequireModules    = false, -- НЕ require чужие ModuleScript'ы (могут ломать игру/текстуры)
 	},
 
-	-- Точные имена: заполняй, если скан нашёл не то
+	-- Точные имена из DUMP твоей игры (заполнены по реальному дампу)
 	Exact = {
-		Crystal = { "EndCrystal", "end_crystal", "Crystal", "Кристалл", "СhestCrystal" },
-		Anchor  = { "RespawnAnchor", "Anchor", "Анчор", "Якорь" },
-		Charge  = { "AnchorCharge", "Charge", "Заряд", "Glowstone", "Светокамень" },
-		Block   = { "Obsidian", "Обсидиан", "Block", "Блок" },
-		Attack  = { "Sword", "Katana", "Меч", "Blade", "Axe" },
+		Crystal = { "End Crystal", "EndCrystal", "end_crystal", "Crystal", "Кристалл" },
+		Anchor  = { "RespawnAnchor", "Respawn Anchor", "Anchor", "Анчор", "Якорь" },
+		Charge  = { "Glowstone", "AnchorCharge", "Charge", "Заряд", "Светокамень" },
+		Block   = { "Block", "Cobblestone", "Obsidian", "Обсидиан", "Блок" },
+		Attack  = { "Sword", "Katana", "Меч", "Blade", "Axe", "Netherite Sword", "Attack", "Swing" },
 	},
 
 	Targeting = {
@@ -355,7 +355,7 @@ local P = {
 	Anchor  = lowerList({ "anchor", "анчор", "якорь", "respawn_anchor" }),
 	Charge  = lowerList({ "charge", "заряд", "fuel", "топливо", "glowstone", "светокамень", "камень света" }),
 	Block   = lowerList({ "obsidian", "обсидиан", "block", "блок", "tnt", "тнт" }),
-	Attack  = lowerList({ "sword", "меч", "katana", "blade", "axe", "топор", "weapon" }),
+	Attack  = lowerList({ "sword", "меч", "katana", "blade", "axe", "топор", "weapon", "attack", "swing", "hit", "удар" }),
 	Remotes = lowerList({ "remot", "event", "net", "network", "comm" }),
 	Exact = {
 		crystal = lowerList(CONFIG.Exact.Crystal),
@@ -596,6 +596,7 @@ local function rescanSources()
 		end
 	end
 	scanToolTemplates(ReplicatedStorage)
+	pcall(function() scanToolTemplates(game:GetService("StarterPack")) end) -- Tool'ы на старте (анчор может лежать тут)
 	if CONFIG.Scan.CloneFromWorkspace then scanToolTemplates(workspace) end
 
 	-- 3) RemoteEvent / RemoteFunction / ProximityPrompt / ModuleScript

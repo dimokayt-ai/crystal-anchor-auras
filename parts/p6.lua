@@ -1,3 +1,4 @@
+			return a._dist < b._dist
 		end)
 	elseif prio == "Threat" then
 		-- ближе + толще = выше приоритет
@@ -192,4 +193,3 @@ local function hitPlaced(s, t, pos)
 				return pcall(function() src.inst:Activate() end)
 			end
 		end
-	end

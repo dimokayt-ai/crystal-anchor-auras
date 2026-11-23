@@ -11,6 +11,7 @@
 		end
 	end
 	scanToolTemplates(ReplicatedStorage)
+	pcall(function() scanToolTemplates(game:GetService("StarterPack")) end) -- Tool'ы на старте (анчор может лежать тут)
 	if CONFIG.Scan.CloneFromWorkspace then scanToolTemplates(workspace) end
 
 	-- 3) RemoteEvent / RemoteFunction / ProximityPrompt / ModuleScript
@@ -192,4 +193,3 @@ local function buildEntry(model)
 	local isPlayer = pc ~= nil
 
 	-- "узнается ли цель как враг": humanoid ИЛИ hp ИЛИ имя/тег
-	local recognized = humanoid ~= nil

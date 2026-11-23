@@ -1,3 +1,4 @@
+	end
 	return false
 end
 
@@ -192,4 +193,3 @@ local function updateHUD()
 		as and (as.type .. " / " .. as.name) or "НЕ НАЙДЕН")
 	HUD.srcA.TextColor3 = as and Color3.fromRGB(225, 225, 235)
 		or Color3.fromRGB(255, 120, 120)
-
