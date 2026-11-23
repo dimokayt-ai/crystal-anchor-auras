@@ -205,7 +205,7 @@ CONFIG.Crystal = {
 	twoPhase = true,           -- поставить кристалл -> ударить/взорвать
 	twoPhaseMode = "swing",    -- swing | findAndSwing | none
 	twoPhaseDelay = 0,         -- пауза между постановкой и ударом (0 = сразу)
-	aimCamera = true,          -- наводиться в точку как киллаура
+	aimCamera = false,         -- без аима, как раньше
 	smoothAim = 0.35,
 	toolClickMode = "Both",  -- Activate | VirtualClick | Both (Both = клик по позиции цели)
 	placeClick = "Right",      -- ПКМ = ставить (ЛКМ в этой игре ломает!)
