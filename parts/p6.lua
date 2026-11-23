@@ -1,69 +1,22 @@
-		table.sort(cands, function(a, b)
-			local ba = (a.isBoss or a.isElite) and 0 or 1
-			local bb = (b.isBoss or b.isElite) and 0 or 1
-			if ba ~= bb then return ba < bb end
-			return a._dist < b._dist
-		end)
-	elseif prio == "Threat" then
-		-- ближе + толще = выше приоритет
-		table.sort(cands, function(a, b)
-			local sa = a._dist - math.min(a.maxHealth or 0, 20000) * 0.002
-			local sb = b._dist - math.min(b.maxHealth or 0, 20000) * 0.002
-			return sa < sb
-		end)
-	else -- Nearest
-		table.sort(cands, function(a, b) return a._dist < b._dist end)
-	end
-
-	if s.multi then
-		MULTI_IDX = (MULTI_IDX % #cands) + 1
-		return cands[MULTI_IDX]
-	end
-	return cands[1]
 end
 
--- Куда именно ставить/целиться
-local function resolvePosition(s, t)
-	local mode = s.positionMode or "Root"
-	local p = t.root.Position
-	local look = t.root.CFrame.LookVector
-	if mode == "Feet" then return p - Vector3.new(0, 3, 0) end
-	if mode == "Below" then return p - Vector3.new(0, 5, 0) end
-	if mode == "Above" then return p + Vector3.new(0, 4, 0) end
-	if mode == "Behind" then return p - look * 2.5 end
-	if mode == "Own" then
-		local own = getOwnRoot()
-		return own and own.Position or p
-	end
-	if mode == "Ring" then
-		local a = math.random() * math.pi * 2
-		local r = math.random() * (CONFIG.RingRadius or 3)
-		return p + Vector3.new(math.cos(a) * r, -2, math.sin(a) * r)
-	end
-	return p -- Root
-end
+-- Память успешных вариантов аргументов: SRC_ARG_OK[srcName..phase] = index
+local SRC_ARG_OK = {}
 
--- =================================================================
--- 9. АКТИВАЦИЯ ИСТОЧНИКОВ (дохуя вариантов)
--- =================================================================
-local ARG_VARIANTS = {
-	function(t, pos) return { pos } end,
-	function(t, pos) return { t.model } end,
-	function(t, pos) return { t.model, pos } end,
-	function(t, pos) return { pos, t.model } end,
-	function(t, pos) return { t.root } end,
-	function(t, pos) return { pos, t.root } end,
-	function(t, pos) return {} end,
-}
-
-local function nextArgs(phase, t, pos, s)
+local function nextArgs(phase, t, pos, s, src)
+	local vars = buildArgVariants(phase, t, pos, src)
+	local key = ((src and src.name) or "?") .. "|" .. phase
 	local idx = s.argIndex
 	if not idx then
-		idx = ARG_INDEX[phase] or 1
-		ARG_INDEX[phase] = (idx % #ARG_VARIANTS) + 1
+		-- если уже знаем удачный вариант — пробуем его первым
+		idx = SRC_ARG_OK[key]
+		if not idx then
+			idx = ARG_INDEX[phase] or 1
+			ARG_INDEX[phase] = (idx % #vars) + 1
+		end
 	end
-	local v = ARG_VARIANTS[((idx - 1) % #ARG_VARIANTS) + 1]
-	return v(t, pos)
+	idx = ((idx - 1) % #vars) + 1
+	return vars[idx], idx, key, #vars
 end
 
 local function invokeRF(rf, args, timeout)
@@ -105,14 +58,18 @@ local function activateSource(src, phase, t, pos, s)
 		return fired
 
 	elseif src.type == "remoteEvent" then
-		local args = nextArgs(phase, t, pos, s)
-		return pcall(function()
+		local args, idx, key = nextArgs(phase, t, pos, s, src)
+		local ok = pcall(function()
 			src.inst:FireServer(table.unpack(args))
 		end)
+		if ok then SRC_ARG_OK[key] = idx end
+		return ok
 
 	elseif src.type == "remoteFunction" then
-		local args = nextArgs(phase, t, pos, s)
-		return invokeRF(src.inst, args, s.rfTimeout or 2)
+		local args, idx, key = nextArgs(phase, t, pos, s, src)
+		local ok = invokeRF(src.inst, args, s.rfTimeout or 2)
+		if ok then SRC_ARG_OK[key] = idx end
+		return ok
 
 	elseif src.type == "prompt" then
 		local ok = pcall(function() src.inst:InputHoldBegin() end)
@@ -200,3 +157,70 @@ local function hitPlaced(s, t, pos)
 			local ok = ensureEquipped(src.inst)
 			if ok then
 				if s.aimCamera then aimCamera(target) end
+				return pcall(function() src.inst:Activate() end)
+			end
+		end
+	end
+	return false
+end
+
+local function fireCrystal(s, t, pos)
+	local src = pickSource("crystal")
+	if not src then return false end
+	-- фаза блока: сначала ставим обсидиан/блок под кристалл
+	if s.placeBlock then
+		local bsrc = pickSource("block")
+		if bsrc then
+			activateSource(bsrc, "block", t, pos, s)
+			task.wait(s.blockDelay or 0.12)
+		end
+	end
+	local ok = activateSource(src, "crystal", t, pos, s)
+	STATE.crystal.shots = STATE.crystal.shots + 1
+	logAction({ kind = "crystal", ok = ok, src = src.name, pos = { pos.X, pos.Y, pos.Z }, target = t.name })
+	if ok and s.twoPhase and s.twoPhaseMode ~= "none" then
+		if (s.twoPhaseDelay or 0) > 0 then task.wait(s.twoPhaseDelay) end
+		hitPlaced(s, t, pos)
+	end
+	return ok
+end
+
+local function fireAnchor(s, t, pos)
+	local src = pickSource("anchor")
+	if not src then return false end
+	local seq = s.sequence or "auto"
+	if seq == "auto" then
+		if #SOURCES.charge > 0 and #SOURCES.attack > 0 then
+			seq = "place_charge_attack" -- поставить -> зарядить светокамнем -> ударить (взрыв)
+		elseif #SOURCES.charge > 0 then
+			seq = "charge_then_use"
+		elseif s.autoDouble then
+			seq = "use_twice"
+		else
+			seq = "single"
+		end
+	end
+	local ct = s.chargeTime or 0.6
+
+	if seq == "place_charge_attack" then
+		activateSource(src, "anchor", t, pos, s) -- 1) поставить анчор
+		if ct > 0 then task.wait(ct) end
+		local csrc = pickSource("charge")
+		if csrc then
+			-- 2) закидывать светокамень до конца (maxCharges раз), пока не взорвётся
+			local maxC = math.max(1, tonumber(s.maxCharges) or 4)
+			for i = 1, maxC do
+				activateSource(csrc, "charge", t, pos, s)
+				if ct > 0 then task.wait(ct) end
+			end
+		end
+		-- 3) ударить по анчору -> взрыв
+		local atk = pickSource("attack")
+		if atk and atk.type == "tool" and ensureEquipped(atk.inst) then
+			if s.aimCamera then aimCamera(pos) end
+			pcall(function() atk.inst:Activate() end)
+		else
+			-- нет оружия — ещё раз ПКМ по анчору (в некоторых играх это подрывает)
+			activateSource(src, "anchor", t, pos, s)
+		end
+	elseif seq == "charge_then_use" then

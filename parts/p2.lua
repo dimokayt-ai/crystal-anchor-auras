@@ -1,25 +1,3 @@
-	twoPhaseMode = "swing",    -- swing | findAndSwing | none
-	twoPhaseDelay = 0,         -- пауза между постановкой и ударом (0 = сразу)
-	aimCamera = false,         -- поворачивать камеру к точке (нужно в некоторых играх)
-	toolClickMode = "Both",  -- Activate | VirtualClick | Both (Both = клик по позиции цели)
-	placeClick = "Right",      -- ПКМ = ставить (ЛКМ в этой игре ломает!)
-	equipDelay = 0.05,         -- пауза после экипировки инструмента
-	argIndex = 1,               -- 1 = фикс. арги (без ротации: ротация заставляла игру доставать пушку/фаербол); nil = ротация
-}
-
-CONFIG.Anchor = {
-	enabled = false,
-	range = 60,
-	delay = 0.3,
-	jitter = 0.15,
-	positionMode = "Below",
-	priority = "Nearest",
-	filter = "All",
-	multi = false,
-	requireLoS = false,
-	finishHP = 0.3,
-	disengageHP = nil,
-	aggroOnly = false,
 	aggroRadius = 25,
 
 	sequence = "auto",      -- auto | single | charge_then_use | use_twice | place_charge_attack
@@ -31,6 +9,27 @@ CONFIG.Anchor = {
 	placeClick = "Right",    -- ПКМ = ставить
 	equipDelay = 0.05,
 	argIndex = 1,               -- как и у кристалла: без ротации аргов
+}
+
+CONFIG.KillAura = {
+	enabled = false,
+	range = 18,
+	delay = 0.08,
+	jitter = 0.02,
+	priority = "Nearest",
+	filter = "All",
+	requireLoS = false,
+	aimCamera = true,
+	toolClickMode = "Both",
+	equipDelay = 0.03,
+}
+
+CONFIG.MaceHelper = {
+	enabled = false,
+	range = 20,
+	jumpPower = 60,
+	fallAttackDelay = 0.15, -- когда начинать бить после прыжка (на падении)
+	onlyMace = false,       -- true = бить только если в руках/инвентаре есть Mace
 }
 
 -- =================================================================
@@ -100,7 +99,7 @@ local P = {
 	Crystal = lowerList({ "crystal", "кристалл", "cryst", "end_crystal" }),
 	Anchor  = lowerList({ "anchor", "анчор", "якорь", "respawn_anchor" }),
 	Charge  = lowerList({ "заряд", "fuel", "топливо", "glowstone", "светокамень", "камень света" }), -- БЕЗ "charge": иначе фаерболлы/заряды оружия ловятся
-	Block   = lowerList({ "obsidian", "обсидиан", "block", "блок", "tnt", "тнт" }),
+	Block   = lowerList({ "obsidian", "обсидиан", "block", "блок", "tnt", "тнт", "build", "place" }),
 	Attack  = lowerList({ "sword", "меч", "katana", "blade", "axe", "топор", "weapon", "attack", "swing", "hit", "удар" }),
 	Remotes = lowerList({ "remot", "event", "net", "network", "comm" }),
 	Exact = {
@@ -200,3 +199,28 @@ local function aimCamera(pos)
 	end)
 	return ok
 end
+
+-- Клик мышью по экранной позиции точки (VirtualUser) — ЛКМ (сломать/удар)
+local function virtualClick(worldPos)
+	local cam = workspace.CurrentCamera
+	if not cam then return false end
+	local vp = cam:WorldToViewportPoint(worldPos)
+	local ok = pcall(function()
+		VirtualUser:CaptureController()
+		VirtualUser:ClickButton1(Vector2.new(vp.X, vp.Y))
+	end)
+	return ok
+end
+
+-- ПКМ по точке: в этих играх ПКМ = установка, ЛКМ = сломать
+local function pressRightClick(worldPos)
+	local cam = workspace.CurrentCamera
+	local sx, sy = 0, 0
+	if cam then
+		local vs = cam.ViewportSize
+		sx, sy = vs.X / 2, vs.Y / 2
+		-- Для установки нужно целиться в ПОВЕРХНОСТЬ (блок), а не в воздух.
+		-- Пускаем луч от камеры через точку мира и кликаем туда, где он попадёт в блок.
+		local hitPos = nil
+		if worldPos then
+			local okr, rayRes = pcall(function()

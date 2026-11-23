@@ -108,6 +108,8 @@ local CONFIG = {
 		CycleSource   = Enum.KeyCode.K,   -- смена источника
 		ToggleHUD     = Enum.KeyCode.J,   -- показать/скрыть HUD
 		ExportLog     = Enum.KeyCode.L,   -- скопировать лог действий (датасет) в буфер
+		ToggleKillAura = Enum.KeyCode.N,  -- Kill Aura (авто-удар мечом/мейсом)
+		ToggleMace    = Enum.KeyCode.M,   -- Mace Helper (прыжок+удар на падении)
 	},
 
 	Scan = {
@@ -235,6 +237,27 @@ CONFIG.Anchor = {
 	argIndex = 1,               -- как и у кристалла: без ротации аргов
 }
 
+CONFIG.KillAura = {
+	enabled = false,
+	range = 18,
+	delay = 0.08,
+	jitter = 0.02,
+	priority = "Nearest",
+	filter = "All",
+	requireLoS = false,
+	aimCamera = true,
+	toolClickMode = "Both",
+	equipDelay = 0.03,
+}
+
+CONFIG.MaceHelper = {
+	enabled = false,
+	range = 20,
+	jumpPower = 60,
+	fallAttackDelay = 0.15, -- когда начинать бить после прыжка (на падении)
+	onlyMace = false,       -- true = бить только если в руках/инвентаре есть Mace
+}
+
 -- =================================================================
 -- 3. ПРЕСЕТЫ ПОВЕДЕНИЯ (H — смена)
 --    Любое поле здесь переопределяет базовые настройки обеих аур.
@@ -302,7 +325,7 @@ local P = {
 	Crystal = lowerList({ "crystal", "кристалл", "cryst", "end_crystal" }),
 	Anchor  = lowerList({ "anchor", "анчор", "якорь", "respawn_anchor" }),
 	Charge  = lowerList({ "заряд", "fuel", "топливо", "glowstone", "светокамень", "камень света" }), -- БЕЗ "charge": иначе фаерболлы/заряды оружия ловятся
-	Block   = lowerList({ "obsidian", "обсидиан", "block", "блок", "tnt", "тнт" }),
+	Block   = lowerList({ "obsidian", "обсидиан", "block", "блок", "tnt", "тнт", "build", "place" }),
 	Attack  = lowerList({ "sword", "меч", "katana", "blade", "axe", "топор", "weapon", "attack", "swing", "hit", "удар" }),
 	Remotes = lowerList({ "remot", "event", "net", "network", "comm" }),
 	Exact = {
@@ -503,6 +526,8 @@ end
 local STATE = {
 	crystal = { enabled = false, shots = 0, target = nil },
 	anchor  = { enabled = false, shots = 0, target = nil },
+	killaura = { enabled = false, shots = 0, target = nil },
+	mace = { enabled = false, lastJump = 0 },
 	warn = nil,       -- текст предупреждения (например, низкое HP)
 	warnAt = 0,
 	log = {},         -- запись действий для "обучения"/датасета
@@ -593,8 +618,9 @@ local function rescanSources()
 		if not phase or not lists[phase] then return end
 		-- анчор: ТОЛЬКО Tool (никаких RemoteEvent/промптов/модулей)
 		if phase == "anchor" and src.type ~= "tool" then return end
-		if seen[src.inst] then return end
-		seen[src.inst] = true
+		local k = tostring(src.inst) .. "|" .. phase
+		if seen[k] then return end
+		seen[k] = true
 		src.score = scoreSource(src.name, src.type, src.exact)
 		table.insert(lists[phase], src)
 	end
@@ -647,6 +673,11 @@ local function rescanSources()
 				if phase then
 					local t = d:IsA("RemoteEvent") and "remoteEvent" or "remoteFunction"
 					add(phase, { type = t, inst = d, name = d.Name, exact = isExact(d.Name, phase) })
+					-- build/place ремоуты полезны и для кристалла тоже
+					local ln = lowerRU(d.Name)
+					if (ln:find("build", 1, true) or ln:find("place", 1, true)) and phase ~= "crystal" then
+						add("crystal", { type = t, inst = d, name = d.Name, exact = isExact(d.Name, "crystal") })
+					end
 				end
 			elseif d:IsA("ProximityPrompt") then
 				local label = tostring(d.ActionText or "") .. " " .. tostring(d.ObjectText or "")
@@ -1056,24 +1087,66 @@ end
 -- =================================================================
 -- 9. АКТИВАЦИЯ ИСТОЧНИКОВ (дохуя вариантов)
 -- =================================================================
-local ARG_VARIANTS = {
-	function(t, pos) return { pos } end,
-	function(t, pos) return { t.model } end,
-	function(t, pos) return { t.model, pos } end,
-	function(t, pos) return { pos, t.model } end,
-	function(t, pos) return { t.root } end,
-	function(t, pos) return { pos, t.root } end,
-	function(t, pos) return {} end,
-}
+-- Варианты аргументов. Для ремоутов типа BuildingAction/ItemAction пробуем
+-- форматы, типичные для воксельных игр; для остальных — общие.
+local function buildArgVariants(phase, t, pos, src)
+	local name = lowerRU((src and src.name) or "")
+	local variants = {}
+	local function add(v) variants[#variants + 1] = v end
 
-local function nextArgs(phase, t, pos, s)
+	if name:find("build", 1, true) or name:find("place", 1, true) or name:find("block", 1, true) then
+		-- BuildingAction-подобные: (action, pos, item) / (pos, item) / (cf, item)
+		local item = (phase == "crystal" and "End Crystal")
+			or (phase == "anchor" and "Anchor")
+			or (phase == "charge" and "Glowstone")
+			or (phase == "block" and "Block") or "Block"
+		local cf = CFrame.new(pos)
+		add({ "Place", pos, item })
+		add({ "Place", cf, item })
+		add({ "place", pos, item })
+		add({ "Place", pos })
+		add({ pos, item })
+		add({ cf, item })
+		add({ item, pos })
+		add({ pos })
+	end
+
+	if name:find("itemaction", 1, true) or name:find("use", 1, true) then
+		add({ "Use", pos })
+		add({ "use", pos })
+		add({ pos })
+		add({ t.model })
+	end
+
+	-- общие
+	add({ pos })
+	add({ t.model })
+	add({ t.model, pos })
+	add({ pos, t.model })
+	add({ t.root })
+	add({ pos, t.root })
+	add({ CFrame.new(pos) })
+	add({})
+	return variants
+end
+
+-- Память успешных вариантов аргументов: SRC_ARG_OK[srcName..phase] = index
+local SRC_ARG_OK = {}
+
+local function nextArgs(phase, t, pos, s, src)
+	local vars = buildArgVariants(phase, t, pos, src)
+	local key = ((src and src.name) or "?") .. "|" .. phase
 	local idx = s.argIndex
 	if not idx then
-		idx = ARG_INDEX[phase] or 1
-		ARG_INDEX[phase] = (idx % #ARG_VARIANTS) + 1
+		-- если уже знаем удачный вариант — пробуем его первым
+		idx = SRC_ARG_OK[key]
+		if not idx then
+			idx = ARG_INDEX[phase] or 1
+			ARG_INDEX[phase] = (idx % #vars) + 1
+		end
 	end
-	local v = ARG_VARIANTS[((idx - 1) % #ARG_VARIANTS) + 1]
-	return v(t, pos)
+	idx = ((idx - 1) % #vars) + 1
+	return vars[idx], idx, key, #vars
 end
 
 local function invokeRF(rf, args, timeout)
@@ -1115,14 +1188,18 @@ local function activateSource(src, phase, t, pos, s)
 		return fired
 
 	elseif src.type == "remoteEvent" then
-		local args = nextArgs(phase, t, pos, s)
-		return pcall(function()
+		local args, idx, key = nextArgs(phase, t, pos, s, src)
+		local ok = pcall(function()
 			src.inst:FireServer(table.unpack(args))
 		end)
+		if ok then SRC_ARG_OK[key] = idx end
+		return ok
 
 	elseif src.type == "remoteFunction" then
-		local args = nextArgs(phase, t, pos, s)
-		return invokeRF(src.inst, args, s.rfTimeout or 2)
+		local args, idx, key = nextArgs(phase, t, pos, s, src)
+		local ok = invokeRF(src.inst, args, s.rfTimeout or 2)
+		if ok then SRC_ARG_OK[key] = idx end
+		return ok
 
 	elseif src.type == "prompt" then
 		local ok = pcall(function() src.inst:InputHoldBegin() end)
@@ -1392,12 +1469,12 @@ end
 local function updateHUD()
 	if not HUD.gui or not HUD.gui.Parent then return end
 
-	HUD.crystal.Text = ("[Z] Кристалл: %s   выстрелов: %d"):format(
+	HUD.crystal.Text = ("[Z] Кристалл: %s   попыток: %d"):format(
 		STATE.crystal.enabled and "ВКЛ" or "выкл", STATE.crystal.shots)
 	HUD.crystal.TextColor3 = STATE.crystal.enabled
 		and Color3.fromRGB(120, 255, 160) or Color3.fromRGB(140, 140, 150)
 
-	HUD.anchor.Text = ("[G] Анчор:    %s   выстрелов: %d"):format(
+	HUD.anchor.Text = ("[G] Анчор:    %s   попыток: %d"):format(
 		STATE.anchor.enabled and "ВКЛ" or "выкл", STATE.anchor.shots)
 	HUD.anchor.TextColor3 = STATE.anchor.enabled
 		and Color3.fromRGB(120, 255, 160) or Color3.fromRGB(140, 140, 150)
@@ -1429,8 +1506,10 @@ local function updateHUD()
 		HUD.target.Text = "Цель: —"
 	end
 
-	HUD.info.Text = ("Источников: C:%d A:%d бл:%d зар:%d уд:%d | цель(ей): %d | J HUD L лог"):format(
-		#SOURCES.crystal, #SOURCES.anchor, #SOURCES.block, #SOURCES.charge, #SOURCES.attack, #TARGETS)
+	HUD.info.Text = ("C:%d A:%d бл:%d зар:%d уд:%d | целей:%d | N Kill:%s M Mace:%s | JHUD Lлог"):format(
+		#SOURCES.crystal, #SOURCES.anchor, #SOURCES.block, #SOURCES.charge, #SOURCES.attack, #TARGETS,
+		STATE.killaura.enabled and "ВКЛ" or "выкл",
+		STATE.mace.enabled and "ВКЛ" or "выкл")
 
 	if STATE.warn and os.clock() - STATE.warnAt < 5 then
 		HUD.warn.Text = STATE.warn
@@ -1480,6 +1559,13 @@ GENV.AURA_CONNS[#GENV.AURA_CONNS + 1] = UserInputService.InputBegan:Connect(func
 	elseif kc == K.ExportLog then
 		exportLog()
 		STATE.warn, STATE.warnAt = "Лог скопирован в буфер (" .. #STATE.log .. ")", os.clock()
+	elseif kc == K.ToggleKillAura then
+		STATE.killaura.enabled = not STATE.killaura.enabled
+		STATE.killaura.shots = 0
+		print(("[Auras] Kill Aura: %s"):format(STATE.killaura.enabled and "ВКЛ" or "выкл"))
+	elseif kc == K.ToggleMace then
+		STATE.mace.enabled = not STATE.mace.enabled
+		print(("[Auras] Mace Helper: %s"):format(STATE.mace.enabled and "ВКЛ" or "выкл"))
 	end
 end)
 
@@ -1542,6 +1628,113 @@ local function auraLoop(kind)
 	end
 end
 
+local function pickAttackTool(preferMace)
+	local list = SOURCES.attack or {}
+	local best, bestMace = nil, nil
+	for _, s in ipairs(list) do
+		if s.type == "tool" and s.inst and s.inst.Parent then
+			local n = lowerRU(s.name or "")
+			if n:find("mace", 1, true) or n:find("булава", 1, true) then
+				bestMace = s
+			elseif not best then
+				best = s
+			end
+		end
+	end
+	if preferMace and bestMace then return bestMace end
+	return bestMace or best or pickSource("attack")
+end
+
+local function doSwingAt(pos, preferMace)
+	local src = pickAttackTool(preferMace)
+	if not src then return false end
+	if src.type == "tool" then
+		local ok = ensureEquipped(src.inst)
+		if not ok then return false end
+		if CONFIG.KillAura.aimCamera then aimCamera(pos) end
+		pcall(function() src.inst:Activate() end)
+		virtualClick(pos)
+		return true
+	end
+	if src.type == "remoteEvent" then
+		return pcall(function() src.inst:FireServer(pos) end)
+	end
+	return activateSource(src, "attack", { model = player.Character, root = getOwnRoot() }, pos, CONFIG.KillAura)
+end
+
+task.spawn(function()
+	while true do
+		if not alive() then return end
+		if STATE.killaura.enabled then
+			local own = getOwnRoot()
+			if own then
+				local s = {
+					range = CONFIG.KillAura.range or 18,
+					priority = CONFIG.KillAura.priority or "Nearest",
+					filter = CONFIG.KillAura.filter or "All",
+					requireLoS = CONFIG.KillAura.requireLoS,
+					finishHP = 0.3, multi = false,
+				}
+				local t = selectTarget(s, own)
+				STATE.killaura.target = t and t.name or nil
+				if t then
+					local pos = t.root.Position
+					local preferMace = STATE.mace.enabled
+					doSwingAt(pos, preferMace)
+					STATE.killaura.shots = STATE.killaura.shots + 1
+					task.wait((CONFIG.KillAura.delay or 0.08) + math.random() * (CONFIG.KillAura.jitter or 0.02))
+				else
+					task.wait(0.12)
+				end
+			else
+				task.wait(0.2)
+			end
+		else
+			task.wait(0.15)
+		end
+	end
+end)
+
+task.spawn(function()
+	-- Mace Helper: при падении рядом с целью — удар булавой
+	while true do
+		if not alive() then return end
+		if STATE.mace.enabled then
+			local char = player.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			local root = getOwnRoot()
+			if hum and root then
+				local vy = root.AssemblyLinearVelocity.Y
+				local falling = vy < -10
+				if not falling and hum.FloorMaterial ~= Enum.Material.Air and (os.clock() - (STATE.mace.lastJump or 0)) > 0.8 then
+					-- прыжок, если рядом есть цель
+					local t = selectTarget({ range = CONFIG.MaceHelper.range or 20, priority = "Nearest", filter = "All", finishHP = 0.3 }, root)
+					if t then
+						hum:ChangeState(Enum.HumanoidStateType.Jumping)
+						pcall(function() root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, CONFIG.MaceHelper.jumpPower or 60, root.AssemblyLinearVelocity.Z) end)
+						STATE.mace.lastJump = os.clock()
+						task.wait(CONFIG.MaceHelper.fallAttackDelay or 0.15)
+					else
+						task.wait(0.1)
+					end
+				elseif falling then
+					local t = selectTarget({ range = CONFIG.MaceHelper.range or 20, priority = "Nearest", filter = "All", finishHP = 0.3 }, root)
+					if t then
+						doSwingAt(t.root.Position, true)
+					end
+					task.wait(0.05)
+				else
+					task.wait(0.08)
+				end
+			else
+				task.wait(0.2)
+			end
+		else
+			task.wait(0.2)
+		end
+	end
+end)
+
 task.spawn(function()
 	local ok, err = xpcall(function() auraLoop("crystal") end, debug.traceback)
 	if not ok then showFatal(err) end
@@ -1556,7 +1749,7 @@ task.spawn(function()
 	local tFull, tSrc = 0, 0
 	while true do
 		if not alive() then return end
-		local anyOn = STATE.crystal.enabled or STATE.anchor.enabled
+		local anyOn = STATE.crystal.enabled or STATE.anchor.enabled or STATE.killaura.enabled or STATE.mace.enabled
 		if anyOn then
 			local now = os.clock()
 			local full = (now - tFull) >= CONFIG.Scan.FullInterval

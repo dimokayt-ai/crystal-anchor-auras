@@ -1,68 +1,3 @@
-		health = humanoid.Health
-		maxHealth = humanoid.MaxHealth
-	end
-	if health == nil then health = readNumber(model, { "Health", "HP", "health", "hp" }) end
-	if maxHealth == nil then maxHealth = readNumber(model, { "MaxHealth", "MaxHP", "Health", "HP" }) end
-	if maxHealth and health and health > maxHealth then maxHealth = health end
-
-	local pc = Players:GetPlayerFromCharacter(model)
-	local isPlayer = pc ~= nil
-
-	-- "узнается ли цель как враг": humanoid ИЛИ hp ИЛИ имя/тег
-	local recognized = humanoid ~= nil
-		or health ~= nil
-		or nameMatches(model.Name, P.Enemy)
-		or hasAnyTag(model, CONFIG.Targeting.Tags)
-
-	-- босс: имя | атрибут | тег | огромный MaxHealth
-	local isBoss = nameMatches(model.Name, P.Boss)
-		or model:GetAttribute("IsBoss") == true
-		or model:GetAttribute("IsBoss") == 1
-		or model:GetAttribute("Boss") == true
-		or hasAnyTag(model, { "Boss", "boss" })
-		or (maxHealth ~= nil and maxHealth >= CONFIG.Targeting.BossHPThreshold)
-
-	local isElite = nameMatches(model.Name, P.Elite) or hasAnyTag(model, { "Elite", "elite" })
-
-	return {
-		model = model,
-		root = root,
-		humanoid = humanoid,
-		health = health,
-		maxHealth = maxHealth,
-		isPlayer = isPlayer,
-		player = pc,
-		isBoss = isBoss,
-		isElite = isElite,
-		recognized = recognized,
-		name = model.Name,
-	}
-end
-
-local function consider(inst, out, seen)
-	local model = nil
-	if inst:IsA("Model") then
-		model = inst
-	elseif inst:IsA("Humanoid") then
-		model = inst.Parent
-	elseif inst:IsA("BasePart") then
-		-- "Part-моб": сама деталь с атрибутом Health/HP
-		local hp = inst:GetAttribute("Health") or inst:GetAttribute("HP")
-		if type(hp) == "number" then model = inst end
-	end
-	if not model then return end
-	if model == workspace then return end
-	if not (model:IsA("Model") or model:IsA("BasePart")) then return end
-	if seen[model] then return end
-	seen[model] = true
-	local e = buildEntry(model)
-	if e then out[#out + 1] = e end
-end
-
-local function rescanTargets(full)
-	local out, seen = {}, {}
-	pcall(function()
-		for _, d in workspace:GetChildren() do
 			consider(d, out, seen)
 		end
 		if full then
@@ -200,3 +135,92 @@ local function selectTarget(s, ownRoot)
 			return (a.health or 0) > (b.health or 0)
 		end)
 	elseif prio == "BossFirst" then
+		table.sort(cands, function(a, b)
+			local ba = (a.isBoss or a.isElite) and 0 or 1
+			local bb = (b.isBoss or b.isElite) and 0 or 1
+			if ba ~= bb then return ba < bb end
+			return a._dist < b._dist
+		end)
+	elseif prio == "Threat" then
+		-- ближе + толще = выше приоритет
+		table.sort(cands, function(a, b)
+			local sa = a._dist - math.min(a.maxHealth or 0, 20000) * 0.002
+			local sb = b._dist - math.min(b.maxHealth or 0, 20000) * 0.002
+			return sa < sb
+		end)
+	else -- Nearest
+		table.sort(cands, function(a, b) return a._dist < b._dist end)
+	end
+
+	if s.multi then
+		MULTI_IDX = (MULTI_IDX % #cands) + 1
+		return cands[MULTI_IDX]
+	end
+	return cands[1]
+end
+
+-- Куда именно ставить/целиться
+local function resolvePosition(s, t)
+	local mode = s.positionMode or "Root"
+	local p = t.root.Position
+	local look = t.root.CFrame.LookVector
+	if mode == "Feet" then return p - Vector3.new(0, 3, 0) end
+	if mode == "Below" then return p - Vector3.new(0, 5, 0) end
+	if mode == "Above" then return p + Vector3.new(0, 4, 0) end
+	if mode == "Behind" then return p - look * 2.5 end
+	if mode == "Own" then
+		local own = getOwnRoot()
+		return own and own.Position or p
+	end
+	if mode == "Ring" then
+		local a = math.random() * math.pi * 2
+		local r = math.random() * (CONFIG.RingRadius or 3)
+		return p + Vector3.new(math.cos(a) * r, -2, math.sin(a) * r)
+	end
+	return p -- Root
+end
+
+-- =================================================================
+-- 9. АКТИВАЦИЯ ИСТОЧНИКОВ (дохуя вариантов)
+-- =================================================================
+-- Варианты аргументов. Для ремоутов типа BuildingAction/ItemAction пробуем
+-- форматы, типичные для воксельных игр; для остальных — общие.
+local function buildArgVariants(phase, t, pos, src)
+	local name = lowerRU((src and src.name) or "")
+	local variants = {}
+	local function add(v) variants[#variants + 1] = v end
+
+	if name:find("build", 1, true) or name:find("place", 1, true) or name:find("block", 1, true) then
+		-- BuildingAction-подобные: (action, pos, item) / (pos, item) / (cf, item)
+		local item = (phase == "crystal" and "End Crystal")
+			or (phase == "anchor" and "Anchor")
+			or (phase == "charge" and "Glowstone")
+			or (phase == "block" and "Block") or "Block"
+		local cf = CFrame.new(pos)
+		add({ "Place", pos, item })
+		add({ "Place", cf, item })
+		add({ "place", pos, item })
+		add({ "Place", pos })
+		add({ pos, item })
+		add({ cf, item })
+		add({ item, pos })
+		add({ pos })
+	end
+
+	if name:find("itemaction", 1, true) or name:find("use", 1, true) then
+		add({ "Use", pos })
+		add({ "use", pos })
+		add({ pos })
+		add({ t.model })
+	end
+
+	-- общие
+	add({ pos })
+	add({ t.model })
+	add({ t.model, pos })
+	add({ pos, t.model })
+	add({ t.root })
+	add({ pos, t.root })
+	add({ CFrame.new(pos) })
+	add({})
+	return variants

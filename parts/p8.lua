@@ -1,85 +1,3 @@
-		as and (as.type .. " / " .. as.name) or "НЕ НАЙДЕН")
-	HUD.srcA.TextColor3 = as and Color3.fromRGB(225, 225, 235)
-		or Color3.fromRGB(255, 120, 120)
-
-	local tgt = STATE.crystal.target or STATE.anchor.target
-	if tgt and tgt.root and tgt.root.Parent then
-		local own = getOwnRoot()
-		local d = own and math.floor((tgt.root.Position - own.Position).Magnitude) or 0
-		local hp = tgt.health and math.floor(tgt.health) or "?"
-		local mx = tgt.maxHealth and math.floor(tgt.maxHealth) or "?"
-		HUD.target.Text = ("Цель: %s  [%d м]  HP %s/%s%s"):format(
-			tgt.name, d, hp, mx,
-			(tgt.isBoss and "  [БОСС]") or (tgt.isElite and "  [ЭЛИТА]") or "")
-	else
-		HUD.target.Text = "Цель: —"
-	end
-
-	HUD.info.Text = ("Источников: C:%d A:%d бл:%d зар:%d уд:%d | цель(ей): %d | J HUD L лог"):format(
-		#SOURCES.crystal, #SOURCES.anchor, #SOURCES.block, #SOURCES.charge, #SOURCES.attack, #TARGETS)
-
-	if STATE.warn and os.clock() - STATE.warnAt < 5 then
-		HUD.warn.Text = STATE.warn
-		HUD.warn.TextColor3 = Color3.fromRGB(255, 90, 90)
-	else
-		HUD.warn.Text = ""
-	end
-end
-
--- =================================================================
--- 11. КЛАВИШИ
--- =================================================================
-GENV.AURA_CONNS[#GENV.AURA_CONNS + 1] = UserInputService.InputBegan:Connect(function(input)
-	if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-	-- gpe НЕ проверяем: игры часто перехватывают наши клавиши (gpe=true),
-	-- из-за этого раньше ничего не реагировало. Реагируем, только если
-	-- открыт чат / поле ввода текста.
-	if UserInputService:GetFocusedTextBox() then return end
-	local kc = input.KeyCode
-	local K = CONFIG.Keys
-
-	if kc == K.ToggleCrystal or kc == K.ToggleCrystalAlt then
-		STATE.crystal.enabled = not STATE.crystal.enabled
-		STATE.crystal.shots = 0
-		STATE.crystal.target = nil
-		print(("[Auras] Crystal Aura: %s"):format(STATE.crystal.enabled and "ВКЛ" or "выкл"))
-	elseif kc == K.ToggleAnchor or kc == K.ToggleAnchorAlt then
-		STATE.anchor.enabled = not STATE.anchor.enabled
-		STATE.anchor.shots = 0
-		STATE.anchor.target = nil
-		print(("[Auras] Anchor Aura: %s"):format(STATE.anchor.enabled and "ВКЛ" or "выкл"))
-	elseif kc == K.CyclePreset then
-		PRESET_IDX = (PRESET_IDX % #CONFIG.Presets) + 1
-		MULTI_IDX = 1
-		STATE.warn = nil
-		print(("[Auras] Пресет: %s"):format(CONFIG.Presets[PRESET_IDX].name))
-	elseif kc == K.CycleSource then
-		for _, phase in ipairs({ "crystal", "anchor", "charge", "block", "attack" }) do
-			local n = #SOURCES[phase]
-			if n > 0 then
-				SOURCE_INDEX[phase] = ((SOURCE_INDEX[phase] or 1) % n) + 1
-			end
-		end
-		sourceReport()
-	elseif kc == K.ToggleHUD and HUD.gui then
-		HUD.gui.Enabled = not HUD.gui.Enabled
-	elseif kc == K.ExportLog then
-		exportLog()
-		STATE.warn, STATE.warnAt = "Лог скопирован в буфер (" .. #STATE.log .. ")", os.clock()
-	end
-end)
-
--- =================================================================
--- 12. ГЛАВНЫЕ ЦИКЛЫ
--- =================================================================
-local function setWarn(msg)
-	STATE.warn = msg
-	STATE.warnAt = os.clock()
-end
-
-local function auraLoop(kind)
-	while true do
-		if not alive() then return end
 		local st = STATE[kind]
 		local s = getSettings(kind)
 		CURRENT_SETTINGS = s
@@ -128,6 +46,113 @@ local function auraLoop(kind)
 	end
 end
 
+local function pickAttackTool(preferMace)
+	local list = SOURCES.attack or {}
+	local best, bestMace = nil, nil
+	for _, s in ipairs(list) do
+		if s.type == "tool" and s.inst and s.inst.Parent then
+			local n = lowerRU(s.name or "")
+			if n:find("mace", 1, true) or n:find("булава", 1, true) then
+				bestMace = s
+			elseif not best then
+				best = s
+			end
+		end
+	end
+	if preferMace and bestMace then return bestMace end
+	return bestMace or best or pickSource("attack")
+end
+
+local function doSwingAt(pos, preferMace)
+	local src = pickAttackTool(preferMace)
+	if not src then return false end
+	if src.type == "tool" then
+		local ok = ensureEquipped(src.inst)
+		if not ok then return false end
+		if CONFIG.KillAura.aimCamera then aimCamera(pos) end
+		pcall(function() src.inst:Activate() end)
+		virtualClick(pos)
+		return true
+	end
+	if src.type == "remoteEvent" then
+		return pcall(function() src.inst:FireServer(pos) end)
+	end
+	return activateSource(src, "attack", { model = player.Character, root = getOwnRoot() }, pos, CONFIG.KillAura)
+end
+
+task.spawn(function()
+	while true do
+		if not alive() then return end
+		if STATE.killaura.enabled then
+			local own = getOwnRoot()
+			if own then
+				local s = {
+					range = CONFIG.KillAura.range or 18,
+					priority = CONFIG.KillAura.priority or "Nearest",
+					filter = CONFIG.KillAura.filter or "All",
+					requireLoS = CONFIG.KillAura.requireLoS,
+					finishHP = 0.3, multi = false,
+				}
+				local t = selectTarget(s, own)
+				STATE.killaura.target = t and t.name or nil
+				if t then
+					local pos = t.root.Position
+					local preferMace = STATE.mace.enabled
+					doSwingAt(pos, preferMace)
+					STATE.killaura.shots = STATE.killaura.shots + 1
+					task.wait((CONFIG.KillAura.delay or 0.08) + math.random() * (CONFIG.KillAura.jitter or 0.02))
+				else
+					task.wait(0.12)
+				end
+			else
+				task.wait(0.2)
+			end
+		else
+			task.wait(0.15)
+		end
+	end
+end)
+
+task.spawn(function()
+	-- Mace Helper: при падении рядом с целью — удар булавой
+	while true do
+		if not alive() then return end
+		if STATE.mace.enabled then
+			local char = player.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			local root = getOwnRoot()
+			if hum and root then
+				local vy = root.AssemblyLinearVelocity.Y
+				local falling = vy < -10
+				if not falling and hum.FloorMaterial ~= Enum.Material.Air and (os.clock() - (STATE.mace.lastJump or 0)) > 0.8 then
+					-- прыжок, если рядом есть цель
+					local t = selectTarget({ range = CONFIG.MaceHelper.range or 20, priority = "Nearest", filter = "All", finishHP = 0.3 }, root)
+					if t then
+						hum:ChangeState(Enum.HumanoidStateType.Jumping)
+						pcall(function() root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, CONFIG.MaceHelper.jumpPower or 60, root.AssemblyLinearVelocity.Z) end)
+						STATE.mace.lastJump = os.clock()
+						task.wait(CONFIG.MaceHelper.fallAttackDelay or 0.15)
+					else
+						task.wait(0.1)
+					end
+				elseif falling then
+					local t = selectTarget({ range = CONFIG.MaceHelper.range or 20, priority = "Nearest", filter = "All", finishHP = 0.3 }, root)
+					if t then
+						doSwingAt(t.root.Position, true)
+					end
+					task.wait(0.05)
+				else
+					task.wait(0.08)
+				end
+			else
+				task.wait(0.2)
+			end
+		else
+			task.wait(0.2)
+		end
+	end
+end)
+
 task.spawn(function()
 	local ok, err = xpcall(function() auraLoop("crystal") end, debug.traceback)
 	if not ok then showFatal(err) end
@@ -142,7 +167,7 @@ task.spawn(function()
 	local tFull, tSrc = 0, 0
 	while true do
 		if not alive() then return end
-		local anyOn = STATE.crystal.enabled or STATE.anchor.enabled
+		local anyOn = STATE.crystal.enabled or STATE.anchor.enabled or STATE.killaura.enabled or STATE.mace.enabled
 		if anyOn then
 			local now = os.clock()
 			local full = (now - tFull) >= CONFIG.Scan.FullInterval

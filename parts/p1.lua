@@ -108,6 +108,8 @@ local CONFIG = {
 		CycleSource   = Enum.KeyCode.K,   -- смена источника
 		ToggleHUD     = Enum.KeyCode.J,   -- показать/скрыть HUD
 		ExportLog     = Enum.KeyCode.L,   -- скопировать лог действий (датасет) в буфер
+		ToggleKillAura = Enum.KeyCode.N,  -- Kill Aura (авто-удар мечом/мейсом)
+		ToggleMace    = Enum.KeyCode.M,   -- Mace Helper (прыжок+удар на падении)
 	},
 
 	Scan = {
@@ -200,3 +202,25 @@ CONFIG.Crystal = {
 	placeBlock = true,          -- сначала ставить блок (обсидиан) под кристалл
 	blockDelay = 0,             -- пауза между блоком и кристаллом (0 = сразу, кадр-в-кадр)
 	twoPhase = true,           -- поставить кристалл -> ударить/взорвать
+	twoPhaseMode = "swing",    -- swing | findAndSwing | none
+	twoPhaseDelay = 0,         -- пауза между постановкой и ударом (0 = сразу)
+	aimCamera = false,         -- поворачивать камеру к точке (нужно в некоторых играх)
+	toolClickMode = "Both",  -- Activate | VirtualClick | Both (Both = клик по позиции цели)
+	placeClick = "Right",      -- ПКМ = ставить (ЛКМ в этой игре ломает!)
+	equipDelay = 0.05,         -- пауза после экипировки инструмента
+	argIndex = 1,               -- 1 = фикс. арги (без ротации: ротация заставляла игру доставать пушку/фаербол); nil = ротация
+}
+
+CONFIG.Anchor = {
+	enabled = false,
+	range = 60,
+	delay = 0.3,
+	jitter = 0.15,
+	positionMode = "Below",
+	priority = "Nearest",
+	filter = "All",
+	multi = false,
+	requireLoS = false,
+	finishHP = 0.3,
+	disengageHP = nil,
+	aggroOnly = false,

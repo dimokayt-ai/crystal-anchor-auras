@@ -1,28 +1,3 @@
-
--- Клик мышью по экранной позиции точки (VirtualUser) — ЛКМ (сломать/удар)
-local function virtualClick(worldPos)
-	local cam = workspace.CurrentCamera
-	if not cam then return false end
-	local vp = cam:WorldToViewportPoint(worldPos)
-	local ok = pcall(function()
-		VirtualUser:CaptureController()
-		VirtualUser:ClickButton1(Vector2.new(vp.X, vp.Y))
-	end)
-	return ok
-end
-
--- ПКМ по точке: в этих играх ПКМ = установка, ЛКМ = сломать
-local function pressRightClick(worldPos)
-	local cam = workspace.CurrentCamera
-	local sx, sy = 0, 0
-	if cam then
-		local vs = cam.ViewportSize
-		sx, sy = vs.X / 2, vs.Y / 2
-		-- Для установки нужно целиться в ПОВЕРХНОСТЬ (блок), а не в воздух.
-		-- Пускаем луч от камеры через точку мира и кликаем туда, где он попадёт в блок.
-		local hitPos = nil
-		if worldPos then
-			local okr, rayRes = pcall(function()
 				local origin = cam.CFrame.Position
 				local dir = (worldPos - origin)
 				if dir.Magnitude < 0.001 then return nil end
@@ -99,6 +74,8 @@ end
 local STATE = {
 	crystal = { enabled = false, shots = 0, target = nil },
 	anchor  = { enabled = false, shots = 0, target = nil },
+	killaura = { enabled = false, shots = 0, target = nil },
+	mace = { enabled = false, lastJump = 0 },
 	warn = nil,       -- текст предупреждения (например, низкое HP)
 	warnAt = 0,
 	log = {},         -- запись действий для "обучения"/датасета
@@ -189,8 +166,9 @@ local function rescanSources()
 		if not phase or not lists[phase] then return end
 		-- анчор: ТОЛЬКО Tool (никаких RemoteEvent/промптов/модулей)
 		if phase == "anchor" and src.type ~= "tool" then return end
-		if seen[src.inst] then return end
-		seen[src.inst] = true
+		local k = tostring(src.inst) .. "|" .. phase
+		if seen[k] then return end
+		seen[k] = true
 		src.score = scoreSource(src.name, src.type, src.exact)
 		table.insert(lists[phase], src)
 	end
@@ -200,3 +178,49 @@ local function rescanSources()
 		if not phase then return end
 		if live then
 			add(phase, { type = "tool", inst = tool, name = tool.Name, exact = isExact(tool.Name, phase) })
+			return
+		end
+		-- шаблон: клонируем в рюкзак (если разрешено и такого ещё нет)
+		if not CONFIG.Scan.CloneTemplates then return end
+		if phase == "attack" and not CONFIG.Scan.CloneAttack then return end -- без спама оружием
+		if findToolByName(tool.Name) then return end
+		if not live and tool.Parent == workspace and not CONFIG.Scan.CloneFromWorkspace then return end
+		local ok, clone = pcall(function() return tool:Clone() end)
+		if not ok or not clone then return end
+		clone.Parent = backpack
+		print(("[Auras] Шаблон склонирован в рюкзак: %s"):format(clone.Name))
+		add(phase, { type = "tool", inst = clone, name = clone.Name, exact = isExact(clone.Name, phase) })
+	end
+
+	-- 1) живые Tool'ы
+	for _, container in ipairs({ backpack, char }) do
+		if container then
+			for _, d in container:GetChildren() do
+				if d:IsA("Tool") then considerTool(d, true) end
+			end
+		end
+	end
+
+	-- 2) шаблоны Tool'ы в ReplicatedStorage (+ workspace, если включено)
+	local function scanToolTemplates(root)
+		if not root then return end
+		for _, d in root:GetDescendants() do
+			if d:IsA("Tool") then considerTool(d, false) end
+		end
+	end
+	scanToolTemplates(ReplicatedStorage)
+	pcall(function() scanToolTemplates(game:GetService("StarterPack")) end) -- Tool'ы на старте (анчор может лежать тут)
+	if CONFIG.Scan.CloneFromWorkspace then scanToolTemplates(workspace) end
+
+	-- 3) RemoteEvent / RemoteFunction / ProximityPrompt / ModuleScript
+	local function scanServices(root)
+		if not root then return end
+		for _, d in root:GetDescendants() do
+			if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then
+				local phase = classify(d.Name)
+				if phase then
+					local t = d:IsA("RemoteEvent") and "remoteEvent" or "remoteFunction"
+					add(phase, { type = t, inst = d, name = d.Name, exact = isExact(d.Name, phase) })
+					-- build/place ремоуты полезны и для кристалла тоже
+					local ln = lowerRU(d.Name)
+					if (ln:find("build", 1, true) or ln:find("place", 1, true)) and phase ~= "crystal" then

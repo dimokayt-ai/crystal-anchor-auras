@@ -1,46 +1,5 @@
-			return
-		end
-		-- шаблон: клонируем в рюкзак (если разрешено и такого ещё нет)
-		if not CONFIG.Scan.CloneTemplates then return end
-		if phase == "attack" and not CONFIG.Scan.CloneAttack then return end -- без спама оружием
-		if findToolByName(tool.Name) then return end
-		if not live and tool.Parent == workspace and not CONFIG.Scan.CloneFromWorkspace then return end
-		local ok, clone = pcall(function() return tool:Clone() end)
-		if not ok or not clone then return end
-		clone.Parent = backpack
-		print(("[Auras] Шаблон склонирован в рюкзак: %s"):format(clone.Name))
-		add(phase, { type = "tool", inst = clone, name = clone.Name, exact = isExact(clone.Name, phase) })
-	end
-
-	-- 1) живые Tool'ы
-	for _, container in ipairs({ backpack, char }) do
-		if container then
-			for _, d in container:GetChildren() do
-				if d:IsA("Tool") then considerTool(d, true) end
-			end
-		end
-	end
-
-	-- 2) шаблоны Tool'ы в ReplicatedStorage (+ workspace, если включено)
-	local function scanToolTemplates(root)
-		if not root then return end
-		for _, d in root:GetDescendants() do
-			if d:IsA("Tool") then considerTool(d, false) end
-		end
-	end
-	scanToolTemplates(ReplicatedStorage)
-	pcall(function() scanToolTemplates(game:GetService("StarterPack")) end) -- Tool'ы на старте (анчор может лежать тут)
-	if CONFIG.Scan.CloneFromWorkspace then scanToolTemplates(workspace) end
-
-	-- 3) RemoteEvent / RemoteFunction / ProximityPrompt / ModuleScript
-	local function scanServices(root)
-		if not root then return end
-		for _, d in root:GetDescendants() do
-			if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then
-				local phase = classify(d.Name)
-				if phase then
-					local t = d:IsA("RemoteEvent") and "remoteEvent" or "remoteFunction"
-					add(phase, { type = t, inst = d, name = d.Name, exact = isExact(d.Name, phase) })
+						add("crystal", { type = t, inst = d, name = d.Name, exact = isExact(d.Name, "crystal") })
+					end
 				end
 			elseif d:IsA("ProximityPrompt") then
 				local label = tostring(d.ActionText or "") .. " " .. tostring(d.ObjectText or "")
@@ -200,3 +159,68 @@ local function buildEntry(model)
 	-- HP: humanoid -> атрибуты -> Value-объекты
 	local health, maxHealth = nil, nil
 	if humanoid then
+		health = humanoid.Health
+		maxHealth = humanoid.MaxHealth
+	end
+	if health == nil then health = readNumber(model, { "Health", "HP", "health", "hp" }) end
+	if maxHealth == nil then maxHealth = readNumber(model, { "MaxHealth", "MaxHP", "Health", "HP" }) end
+	if maxHealth and health and health > maxHealth then maxHealth = health end
+
+	local pc = Players:GetPlayerFromCharacter(model)
+	local isPlayer = pc ~= nil
+
+	-- "узнается ли цель как враг": humanoid ИЛИ hp ИЛИ имя/тег
+	local recognized = humanoid ~= nil
+		or health ~= nil
+		or nameMatches(model.Name, P.Enemy)
+		or hasAnyTag(model, CONFIG.Targeting.Tags)
+
+	-- босс: имя | атрибут | тег | огромный MaxHealth
+	local isBoss = nameMatches(model.Name, P.Boss)
+		or model:GetAttribute("IsBoss") == true
+		or model:GetAttribute("IsBoss") == 1
+		or model:GetAttribute("Boss") == true
+		or hasAnyTag(model, { "Boss", "boss" })
+		or (maxHealth ~= nil and maxHealth >= CONFIG.Targeting.BossHPThreshold)
+
+	local isElite = nameMatches(model.Name, P.Elite) or hasAnyTag(model, { "Elite", "elite" })
+
+	return {
+		model = model,
+		root = root,
+		humanoid = humanoid,
+		health = health,
+		maxHealth = maxHealth,
+		isPlayer = isPlayer,
+		player = pc,
+		isBoss = isBoss,
+		isElite = isElite,
+		recognized = recognized,
+		name = model.Name,
+	}
+end
+
+local function consider(inst, out, seen)
+	local model = nil
+	if inst:IsA("Model") then
+		model = inst
+	elseif inst:IsA("Humanoid") then
+		model = inst.Parent
+	elseif inst:IsA("BasePart") then
+		-- "Part-моб": сама деталь с атрибутом Health/HP
+		local hp = inst:GetAttribute("Health") or inst:GetAttribute("HP")
+		if type(hp) == "number" then model = inst end
+	end
+	if not model then return end
+	if model == workspace then return end
+	if not (model:IsA("Model") or model:IsA("BasePart")) then return end
+	if seen[model] then return end
+	seen[model] = true
+	local e = buildEntry(model)
+	if e then out[#out + 1] = e end
+end
+
+local function rescanTargets(full)
+	local out, seen = {}, {}
+	pcall(function()
+		for _, d in workspace:GetChildren() do
