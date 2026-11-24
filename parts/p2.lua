@@ -1,3 +1,8 @@
+
+CONFIG.Speed = {
+	enabled = false,
+	walkSpeed = 75,      -- обычная скорость
+	jumpPower = 60,      -- если игра позволяет менять прыжок
 }
 
 -- =================================================================
@@ -267,3 +272,10 @@ local function pressRightClick(worldPos)
 	end)
 end
 
+-- Прямая видимость до цели
+local losParams = RaycastParams.new()
+losParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local function hasLoS(fromPos, targetEntry)
+	local char = player.Character
+	losParams.FilterDescendantsInstances = { char }

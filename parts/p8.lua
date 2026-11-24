@@ -1,39 +1,3 @@
-			if n:find("mace", 1, true) or n:find("булава", 1, true) then
-				bestMace = s
-			elseif not best then
-				best = s
-			end
-		end
-	end
-	if preferMace and bestMace then return bestMace end
-	return bestMace or best or pickSource("attack")
-end
-
--- 🇷🇺 Найти мейс в инвентаре/руке
-local function findMaceTool()
-	local char = player.Character
-	local backpack = player:FindFirstChild("Backpack")
-	for _, container in ipairs({ char, backpack }) do
-		if container then
-			for _, obj in container:GetChildren() do
-				if obj:IsA("Tool") then
-					local n = lowerRU(obj.Name)
-					if n:find("mace", 1, true) or n:find("булав", 1, true) then return obj end
-				end
-			end
-		end
-	end
-	for _, src in ipairs(SOURCES.attack or {}) do
-		if src.type == "tool" and src.inst and src.inst.Parent then
-			local n = lowerRU(src.name or "")
-			if n:find("mace", 1, true) or n:find("булав", 1, true) then return src.inst end
-		end
-	end
-	return nil
-end
-
--- Текущий предмет в руках (чтобы вернуть после удара мейсом)
-local function heldTool()
 	local char = player.Character
 	if not char then return nil end
 	for _, obj in char:GetChildren() do
@@ -186,6 +150,57 @@ task.spawn(function()
 	end
 end)
 
+-- AirStack: стакаем прыжки / ставим блоки под ноги
+task.spawn(function()
+	while true do
+		if not alive() then return end
+		if STATE.airstack.enabled then
+		local char = player.Character
+		local hum, root = char and char:FindFirstChildOfClass("Humanoid"), getOwnRoot()
+		if hum and root then
+			local cfg = CONFIG.AirStack
+			if cfg.mode == "Block" then
+				local bsrc = pickSource("block")
+				if bsrc then
+					activateSource(bsrc, "block", { model = char, root = root }, root.Position - Vector3.new(0, cfg.blockOffset or 3, 0), CONFIG.Crystal)
+				end
+				pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+			else
+				local boost = (cfg.stackBoost or 3) * math.min(STATE.airstack.stack or 0, 4)
+				pcall(function()
+					root.AssemblyLinearVelocity = Vector3.new(
+						root.AssemblyLinearVelocity.X,
+						(cfg.jumpPower or 55) + boost,
+						root.AssemblyLinearVelocity.Z)
+				end)
+				pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+				STATE.airstack.stack = math.min((STATE.airstack.stack or 0) + 1, 4)
+			end
+			task.wait(CONFIG.AirStack.jumpDelay or 0.06)
+		else
+			task.wait(0.2)
+		end
+		else
+			task.wait(0.15)
+		end
+	end
+end)
+
+-- Speed: держим скорость (в т.ч. после респавна)
+task.spawn(function()
+	while true do
+		if not alive() then return end
+		local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+		if hum and STATE.speed.enabled then
+			pcall(function()
+				if hum.WalkSpeed ~= (CONFIG.Speed.walkSpeed or 75) then hum.WalkSpeed = CONFIG.Speed.walkSpeed or 75 end
+				if hum.JumpPower ~= (CONFIG.Speed.jumpPower or 60) then hum.JumpPower = CONFIG.Speed.jumpPower or 60 end
+			end)
+		end
+		task.wait(0.4)
+	end
+end)
+
 task.spawn(function()
 	local ok, err = xpcall(function() auraLoop("crystal") end, debug.traceback)
 	if not ok then showFatal(err) end
@@ -253,7 +268,7 @@ task.delay(0.4, function()
 		print("[Auras] шаг 3/4: источники просканированы")
 		task.delay(0.5, function()
 			if CONFIG.Scan.DumpAll then pcall(dumpWorld) end
-			print(("[Auras] шаг 4/4: старт завершён. Пресетов: %d | Z/G/N/M/H/K/J/L"):format(#CONFIG.Presets))
+			print(("[Auras] шаг 4/4: старт завершён. Пресетов: %d | Z/G/N/M/V/T/H/K/J/L"):format(#CONFIG.Presets))
 		end)
 	end)
 end)

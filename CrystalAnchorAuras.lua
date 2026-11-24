@@ -109,13 +109,15 @@ local CONFIG = {
 		ToggleHUD     = Enum.KeyCode.J,   -- показать/скрыть HUD
 		ExportLog     = Enum.KeyCode.L,   -- скопировать лог действий (датасет) в буфер
 		ToggleKillAura = Enum.KeyCode.N,  -- Kill Aura (авто-удар мечом/мейсом)
-		ToggleMace    = Enum.KeyCode.M,   -- Mace Helper (прыжок+удар на падении)
+		ToggleMace    = Enum.KeyCode.M,   -- Mace Helper (прыжок+удар мейсом)
+		ToggleAirStack = Enum.KeyCode.V,  -- AirStack (прыжки/блоки под ноги)
+		ToggleSpeed   = Enum.KeyCode.T,   -- Speed (быстрый бег)
 	},
 
 	Scan = {
 		Interval      = 0.5,   -- как часто обновлять список целей (сек)
-		FullInterval  = 3.0,   -- полный обход workspace (сек) — реже = меньше лагов
-		SourceRescan  = 5.0,   -- перескан источников: tools/remotes (сек)
+		FullInterval  = 6.0,   -- локальный скан целей (сек)
+		SourceRescan  = 12.0,  -- перескан источников ReplicatedStorage (сек)
 		CloneTemplates    = false, -- АВТО-ВЫДАЧА ВЫКЛ: предметы сами не выдаются
 		CloneAttack       = false, -- НЕ клонировать мечи/топоры/оружия (иначе спам в инвентарь!)
 		CloneFromWorkspace = false, -- искать шаблоны Tool в workspace (дубли!)
@@ -267,6 +269,21 @@ CONFIG.MaceHelper = {
 	onlyMace = false,       -- true = бить только если мейс найден
 	swapBackDelay = 0.04,   -- пауза перед возвратом прежнего предмета в руки
 	bodyAimSpeed = 14,
+}
+
+CONFIG.AirStack = {
+	enabled = false,
+	mode = "Jump",       -- Jump = стакать прыжки в воздухе | Block = ставить блоки под ноги
+	jumpPower = 55,
+	jumpDelay = 0.06,
+	stackBoost = 3,      -- сколько раз подпрыгивать подряд
+	blockOffset = 3,     -- куда ставить блок под ногами
+}
+
+CONFIG.Speed = {
+	enabled = false,
+	walkSpeed = 75,      -- обычная скорость
+	jumpPower = 60,      -- если игра позволяет менять прыжок
 }
 
 -- =================================================================
@@ -562,6 +579,8 @@ local STATE = {
 	anchor  = { enabled = false, shots = 0, target = nil },
 	killaura = { enabled = false, shots = 0, target = nil },
 	mace = { enabled = false, lastJump = 0 },
+	airstack = { enabled = false, stack = 0 },
+	speed = { enabled = false, origWalk = nil, origJump = nil },
 	warn = nil,       -- текст предупреждения (например, низкое HP)
 	warnAt = 0,
 	log = {},         -- запись действий для "обучения"/датасета
@@ -999,10 +1018,23 @@ local function rescanTargets(full)
 			if pl ~= player and pl.Character then consider(pl.Character, out, seen) end
 		end
 		if full then
-			for _, d in workspace:GetDescendants() do
-				if d:IsA("Model") or d:IsA("Humanoid") or d:IsA("BasePart") then
-					consider(d, out, seen)
+			-- НЕ обходим весь workspace целиком — это главный источник лагов.
+			-- Берём только детали в радиусе и теги CollectionService.
+			local own = getOwnRoot()
+			if own then
+				local r = math.min(CONFIG.KillAura.range or 24, CONFIG.Crystal.range or 60) + 8
+				local params = RaycastParams.new()
+				params.FilterType = Enum.RaycastFilterType.Exclude
+				params.FilterDescendantsInstances = { player.Character }
+				local parts = workspace:GetPartBoundsInBox(
+					CFrame.new(own.Position), Vector3.new(r * 2, r * 2, r * 2), params)
+				for _, p in ipairs(parts) do
+					consider(p, out, seen)
+					if p.Parent then consider(p.Parent, out, seen) end
 				end
+			end
+			for _, tag in ipairs(CONFIG.Targeting.Tags) do
+				for _, obj in CollectionService:GetTagged(tag) do consider(obj, out, seen) end
 			end
 		end
 	end)
@@ -1357,30 +1389,25 @@ local function activateSource(src, phase, t, pos, s)
 	return false
 end
 
--- Поиск только что поставленного кристалла (для добивания)
+-- Поиск только что поставленного кристалла: локальный box вместо GetDescendants()
 local CRYSTAL_FIND_CACHE = { at = 0, part = nil }
 function findPlacedCrystal(pos)
 	local now = os.clock()
-	if now - CRYSTAL_FIND_CACHE.at < 0.35 then
-		return CRYSTAL_FIND_CACHE.part
-	end
-	local best, bestD = nil, 8
+	if now - CRYSTAL_FIND_CACHE.at < 0.2 then return CRYSTAL_FIND_CACHE.part end
+	local best, bestD = nil, 10
 	pcall(function()
-		for _, d in workspace:GetDescendants() do
-			if d:IsA("BasePart") or d:IsA("Model") then
-				local n = lowerRU(d.Name)
-				if containsAny(n, P.Crystal) then
-					local cp = nil
-					if d:IsA("BasePart") then
-						cp = d.Position
-					elseif d.PrimaryPart then
-						cp = d.PrimaryPart.Position
-					end
-					if cp then
-						local dist = (cp - pos).Magnitude
-						if dist < bestD then best, bestD = d, dist end
-					end
-				end
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { player.Character }
+		local parts = workspace:GetPartBoundsInBox(CFrame.new(pos), Vector3.new(20, 20, 20), params)
+		for _, d in ipairs(parts) do
+			local obj = d
+			if d.Parent and containsAny(lowerRU(d.Parent.Name), P.Crystal) then obj = d.Parent end
+			if containsAny(lowerRU(obj.Name), P.Crystal) then
+				local cp = obj:IsA("BasePart") and obj.Position
+					or (obj.PrimaryPart and obj.PrimaryPart.Position) or d.Position
+				local dist = (cp - pos).Magnitude
+				if dist < bestD then best, bestD = obj, dist end
 			end
 		end
 	end)
@@ -1748,10 +1775,12 @@ local function updateHUD()
 
 	local learned = 0
 	for _ in pairs(ARG_STATS) do learned = learned + 1 end
-	HUD.info.Text = ("источники %d/%d/%d/%d/%d · целей %d · N:%s M:%s · обучено %d"):format(
+	HUD.info.Text = ("ист %d/%d/%d/%d/%d · цели %d · N:%s M:%s V:%s T:%s · обуч %d"):format(
 		#SOURCES.crystal, #SOURCES.anchor, #SOURCES.block, #SOURCES.charge, #SOURCES.attack, #TARGETS,
 		STATE.killaura.enabled and "on" or "off",
-		STATE.mace.enabled and "on" or "off", learned)
+		STATE.mace.enabled and "on" or "off",
+		STATE.airstack.enabled and "on" or "off",
+		STATE.speed.enabled and "on" or "off", learned)
 
 	if STATE.warn and os.clock() - STATE.warnAt < 5 then
 		HUD.warn.Text = STATE.warn
@@ -1810,6 +1839,25 @@ GENV.AURA_CONNS[#GENV.AURA_CONNS + 1] = UserInputService.InputBegan:Connect(func
 	elseif kc == K.ToggleMace then
 		STATE.mace.enabled = not STATE.mace.enabled
 		print(("[Auras] Mace Helper: %s"):format(STATE.mace.enabled and "ВКЛ" or "выкл"))
+	elseif kc == K.ToggleAirStack then
+		STATE.airstack.enabled = not STATE.airstack.enabled
+		STATE.airstack.stack = 0
+		print(("[Auras] AirStack (%s): %s"):format(CONFIG.AirStack.mode, STATE.airstack.enabled and "ВКЛ" or "выкл"))
+	elseif kc == K.ToggleSpeed then
+		STATE.speed.enabled = not STATE.speed.enabled
+		local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+		if hum then
+			if STATE.speed.enabled then
+				if STATE.speed.origWalk == nil then STATE.speed.origWalk = hum.WalkSpeed end
+				if STATE.speed.origJump == nil then STATE.speed.origJump = hum.JumpPower end
+				hum.WalkSpeed = CONFIG.Speed.walkSpeed or 75
+				pcall(function() hum.JumpPower = CONFIG.Speed.jumpPower or 60 end)
+			else
+				hum.WalkSpeed = STATE.speed.origWalk or 16
+				pcall(function() hum.JumpPower = STATE.speed.origJump or 50 end)
+			end
+		end
+		print(("[Auras] Speed: %s"):format(STATE.speed.enabled and "ВКЛ" or "выкл"))
 	end
 end)
 
@@ -2069,6 +2117,57 @@ task.spawn(function()
 	end
 end)
 
+-- AirStack: стакаем прыжки / ставим блоки под ноги
+task.spawn(function()
+	while true do
+		if not alive() then return end
+		if STATE.airstack.enabled then
+		local char = player.Character
+		local hum, root = char and char:FindFirstChildOfClass("Humanoid"), getOwnRoot()
+		if hum and root then
+			local cfg = CONFIG.AirStack
+			if cfg.mode == "Block" then
+				local bsrc = pickSource("block")
+				if bsrc then
+					activateSource(bsrc, "block", { model = char, root = root }, root.Position - Vector3.new(0, cfg.blockOffset or 3, 0), CONFIG.Crystal)
+				end
+				pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+			else
+				local boost = (cfg.stackBoost or 3) * math.min(STATE.airstack.stack or 0, 4)
+				pcall(function()
+					root.AssemblyLinearVelocity = Vector3.new(
+						root.AssemblyLinearVelocity.X,
+						(cfg.jumpPower or 55) + boost,
+						root.AssemblyLinearVelocity.Z)
+				end)
+				pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+				STATE.airstack.stack = math.min((STATE.airstack.stack or 0) + 1, 4)
+			end
+			task.wait(CONFIG.AirStack.jumpDelay or 0.06)
+		else
+			task.wait(0.2)
+		end
+		else
+			task.wait(0.15)
+		end
+	end
+end)
+
+-- Speed: держим скорость (в т.ч. после респавна)
+task.spawn(function()
+	while true do
+		if not alive() then return end
+		local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+		if hum and STATE.speed.enabled then
+			pcall(function()
+				if hum.WalkSpeed ~= (CONFIG.Speed.walkSpeed or 75) then hum.WalkSpeed = CONFIG.Speed.walkSpeed or 75 end
+				if hum.JumpPower ~= (CONFIG.Speed.jumpPower or 60) then hum.JumpPower = CONFIG.Speed.jumpPower or 60 end
+			end)
+		end
+		task.wait(0.4)
+	end
+end)
+
 task.spawn(function()
 	local ok, err = xpcall(function() auraLoop("crystal") end, debug.traceback)
 	if not ok then showFatal(err) end
@@ -2136,7 +2235,7 @@ task.delay(0.4, function()
 		print("[Auras] шаг 3/4: источники просканированы")
 		task.delay(0.5, function()
 			if CONFIG.Scan.DumpAll then pcall(dumpWorld) end
-			print(("[Auras] шаг 4/4: старт завершён. Пресетов: %d | Z/G/N/M/H/K/J/L"):format(#CONFIG.Presets))
+			print(("[Auras] шаг 4/4: старт завершён. Пресетов: %d | Z/G/N/M/V/T/H/K/J/L"):format(#CONFIG.Presets))
 		end)
 	end)
 end)

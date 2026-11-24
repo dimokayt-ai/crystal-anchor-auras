@@ -109,13 +109,15 @@ local CONFIG = {
 		ToggleHUD     = Enum.KeyCode.J,   -- показать/скрыть HUD
 		ExportLog     = Enum.KeyCode.L,   -- скопировать лог действий (датасет) в буфер
 		ToggleKillAura = Enum.KeyCode.N,  -- Kill Aura (авто-удар мечом/мейсом)
-		ToggleMace    = Enum.KeyCode.M,   -- Mace Helper (прыжок+удар на падении)
+		ToggleMace    = Enum.KeyCode.M,   -- Mace Helper (прыжок+удар мейсом)
+		ToggleAirStack = Enum.KeyCode.V,  -- AirStack (прыжки/блоки под ноги)
+		ToggleSpeed   = Enum.KeyCode.T,   -- Speed (быстрый бег)
 	},
 
 	Scan = {
 		Interval      = 0.5,   -- как часто обновлять список целей (сек)
-		FullInterval  = 3.0,   -- полный обход workspace (сек) — реже = меньше лагов
-		SourceRescan  = 5.0,   -- перескан источников: tools/remotes (сек)
+		FullInterval  = 6.0,   -- локальный скан целей (сек)
+		SourceRescan  = 12.0,  -- перескан источников ReplicatedStorage (сек)
 		CloneTemplates    = false, -- АВТО-ВЫДАЧА ВЫКЛ: предметы сами не выдаются
 		CloneAttack       = false, -- НЕ клонировать мечи/топоры/оружия (иначе спам в инвентарь!)
 		CloneFromWorkspace = false, -- искать шаблоны Tool в workspace (дубли!)
@@ -267,3 +269,13 @@ CONFIG.MaceHelper = {
 	onlyMace = false,       -- true = бить только если мейс найден
 	swapBackDelay = 0.04,   -- пауза перед возвратом прежнего предмета в руки
 	bodyAimSpeed = 14,
+}
+
+CONFIG.AirStack = {
+	enabled = false,
+	mode = "Jump",       -- Jump = стакать прыжки в воздухе | Block = ставить блоки под ноги
+	jumpPower = 55,
+	jumpDelay = 0.06,
+	stackBoost = 3,      -- сколько раз подпрыгивать подряд
+	blockOffset = 3,     -- куда ставить блок под ногами
+}

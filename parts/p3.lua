@@ -1,10 +1,3 @@
--- Прямая видимость до цели
-local losParams = RaycastParams.new()
-losParams.FilterType = Enum.RaycastFilterType.Exclude
-
-local function hasLoS(fromPos, targetEntry)
-	local char = player.Character
-	losParams.FilterDescendantsInstances = { char }
 	local toPos = targetEntry.root.Position
 	local hit = workspace:Raycast(fromPos, toPos - fromPos, losParams)
 	if not hit then return true end
@@ -24,6 +17,8 @@ local STATE = {
 	anchor  = { enabled = false, shots = 0, target = nil },
 	killaura = { enabled = false, shots = 0, target = nil },
 	mace = { enabled = false, lastJump = 0 },
+	airstack = { enabled = false, stack = 0 },
+	speed = { enabled = false, origWalk = nil, origJump = nil },
 	warn = nil,       -- текст предупреждения (например, низкое HP)
 	warnAt = 0,
 	log = {},         -- запись действий для "обучения"/датасета
@@ -267,3 +262,20 @@ local function rescanSources()
 	for phase, list in pairs(lists) do
 		table.sort(list, function(a, b) return a.score > b.score end)
 		SOURCES[phase] = list
+		if (SOURCE_INDEX[phase] or 1) > #list then SOURCE_INDEX[phase] = 1 end
+	end
+end
+
+local function sourceReport()
+	for _, phase in ipairs({ "crystal", "anchor", "charge", "block", "attack" }) do
+		local names = {}
+		for _, s in ipairs(SOURCES[phase]) do
+			names[#names + 1] = s.type .. ":" .. s.name
+		end
+		print(("[Auras] %-7s → %d | %s"):format(phase, #SOURCES[phase], table.concat(names, ", ")))
+	end
+end
+
+local function sourceValid(src)
+	if not src or not src.inst then return false end
+	local ok, res = pcall(function() return src.inst.Parent ~= nil end)

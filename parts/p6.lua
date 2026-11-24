@@ -1,41 +1,8 @@
-		local fn = src.mod[src.fns[idx]]
-		if type(fn) ~= "function" then return false end
-		-- пробуем варианты: fn(args...) -> fn(mod, args...) -> fn()
-		local vars = buildArgVariants(phase, t, pos, src)
-		for i = 1, math.min(#vars, 8) do
-			local args = vars[i]
-			if pcall(fn, table.unpack(args)) then return true end
-			if pcall(fn, src.mod, table.unpack(args)) then return true end
-		end
-		return pcall(fn)
-	end
-	return false
-end
-
--- Поиск только что поставленного кристалла (для добивания)
-local CRYSTAL_FIND_CACHE = { at = 0, part = nil }
-function findPlacedCrystal(pos)
-	local now = os.clock()
-	if now - CRYSTAL_FIND_CACHE.at < 0.35 then
-		return CRYSTAL_FIND_CACHE.part
-	end
-	local best, bestD = nil, 8
-	pcall(function()
-		for _, d in workspace:GetDescendants() do
-			if d:IsA("BasePart") or d:IsA("Model") then
-				local n = lowerRU(d.Name)
-				if containsAny(n, P.Crystal) then
-					local cp = nil
-					if d:IsA("BasePart") then
-						cp = d.Position
-					elseif d.PrimaryPart then
-						cp = d.PrimaryPart.Position
-					end
-					if cp then
-						local dist = (cp - pos).Magnitude
-						if dist < bestD then best, bestD = d, dist end
-					end
-				end
+			if containsAny(lowerRU(obj.Name), P.Crystal) then
+				local cp = obj:IsA("BasePart") and obj.Position
+					or (obj.PrimaryPart and obj.PrimaryPart.Position) or d.Position
+				local dist = (cp - pos).Magnitude
+				if dist < bestD then best, bestD = obj, dist end
 			end
 		end
 	end)
@@ -267,3 +234,48 @@ local function buildHUD()
 
 	local function mkText(y, size, color, bold, key, x)
 		local l = Instance.new("TextLabel", frame)
+		l.Size = UDim2.new(1, -36, 0, size + 8)
+		l.Position = UDim2.fromOffset(x or 18, y)
+		l.BackgroundTransparency = 1
+		l.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
+		l.TextSize = size
+		l.TextColor3 = color
+		l.TextXAlignment = Enum.TextXAlignment.Left
+		l.Text = ""
+		if key then HUD[key] = l end
+		return l
+	end
+
+	local dot = Instance.new("Frame", frame)
+	dot.Size = UDim2.fromOffset(9, 9)
+	dot.Position = UDim2.fromOffset(18, 21)
+	dot.BackgroundColor3 = Color3.fromRGB(120, 132, 255)
+	dot.BorderSizePixel = 0
+	Instance.new("UICorner", dot).CornerRadius = UDim.new(0, 5)
+
+	mkText(14, 21, Color3.fromRGB(242, 243, 248), true, nil, 36).Text = "Aura Suite"
+	mkText(40, 12, Color3.fromRGB(150, 154, 168), false, nil, 36).Text = "Crystal · Anchor · Combat"
+
+	local sep = Instance.new("Frame", frame)
+	sep.Size = UDim2.new(1, -36, 0, 1)
+	sep.Position = UDim2.fromOffset(18, 64)
+	sep.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	sep.BackgroundTransparency = 0.9
+	sep.BorderSizePixel = 0
+
+	local function pill(y, key, dotKey)
+		local p = Instance.new("Frame", frame)
+		p.Size = UDim2.new(1, -36, 0, 32)
+		p.Position = UDim2.fromOffset(18, y)
+		p.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		p.BackgroundTransparency = 0.94
+		p.BorderSizePixel = 0
+		Instance.new("UICorner", p).CornerRadius = UDim.new(0, 10)
+		local d = Instance.new("Frame", p)
+		d.Size = UDim2.fromOffset(8, 8)
+		d.Position = UDim2.fromOffset(12, 12)
+		d.BackgroundColor3 = Color3.fromRGB(120, 124, 138)
+		d.BorderSizePixel = 0
+		Instance.new("UICorner", d).CornerRadius = UDim.new(0, 4)
+		HUD[dotKey] = d
+		local l = Instance.new("TextLabel", p)

@@ -1,19 +1,3 @@
-	end
-
-	-- живость
-	if e.health and e.health <= 0 then return false end
-	if e.humanoid and e.humanoid.Health <= 0 then return false end
-	if not e.root or not e.root.Parent then return false end
-
-	-- "необычные гуманоиды" без HP: пускаем только если имя/тег совпал
-	if not e.humanoid and not e.health and not e.recognized then
-		if not tc.AllowNoHealth then return false end
-	end
-
-	if not passFilter(e, s.filter) then return false end
-
-	local dist = (e.root.Position - ownRoot.Position).Magnitude
-	if dist > (s.range or 60) then return false end
 
 	if s.aggroOnly and dist > (s.aggroRadius or 25) then return false end
 	if s.requireLoS and not hasLoS(ownRoot.Position, e) then return false end
@@ -267,3 +251,31 @@ local function activateSource(src, phase, t, pos, s)
 		if not src.mod or not src.fns or #src.fns == 0 then return false end
 		local idx = ((FN_INDEX[phase] or 0) % #src.fns) + 1
 		FN_INDEX[phase] = idx
+		local fn = src.mod[src.fns[idx]]
+		if type(fn) ~= "function" then return false end
+		-- пробуем варианты: fn(args...) -> fn(mod, args...) -> fn()
+		local vars = buildArgVariants(phase, t, pos, src)
+		for i = 1, math.min(#vars, 8) do
+			local args = vars[i]
+			if pcall(fn, table.unpack(args)) then return true end
+			if pcall(fn, src.mod, table.unpack(args)) then return true end
+		end
+		return pcall(fn)
+	end
+	return false
+end
+
+-- Поиск только что поставленного кристалла: локальный box вместо GetDescendants()
+local CRYSTAL_FIND_CACHE = { at = 0, part = nil }
+function findPlacedCrystal(pos)
+	local now = os.clock()
+	if now - CRYSTAL_FIND_CACHE.at < 0.2 then return CRYSTAL_FIND_CACHE.part end
+	local best, bestD = nil, 10
+	pcall(function()
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { player.Character }
+		local parts = workspace:GetPartBoundsInBox(CFrame.new(pos), Vector3.new(20, 20, 20), params)
+		for _, d in ipairs(parts) do
+			local obj = d
+			if d.Parent and containsAny(lowerRU(d.Parent.Name), P.Crystal) then obj = d.Parent end

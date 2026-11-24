@@ -1,20 +1,3 @@
-		if (SOURCE_INDEX[phase] or 1) > #list then SOURCE_INDEX[phase] = 1 end
-	end
-end
-
-local function sourceReport()
-	for _, phase in ipairs({ "crystal", "anchor", "charge", "block", "attack" }) do
-		local names = {}
-		for _, s in ipairs(SOURCES[phase]) do
-			names[#names + 1] = s.type .. ":" .. s.name
-		end
-		print(("[Auras] %-7s → %d | %s"):format(phase, #SOURCES[phase], table.concat(names, ", ")))
-	end
-end
-
-local function sourceValid(src)
-	if not src or not src.inst then return false end
-	local ok, res = pcall(function() return src.inst.Parent ~= nil end)
 	return ok and res
 end
 
@@ -192,10 +175,23 @@ local function rescanTargets(full)
 			if pl ~= player and pl.Character then consider(pl.Character, out, seen) end
 		end
 		if full then
-			for _, d in workspace:GetDescendants() do
-				if d:IsA("Model") or d:IsA("Humanoid") or d:IsA("BasePart") then
-					consider(d, out, seen)
+			-- НЕ обходим весь workspace целиком — это главный источник лагов.
+			-- Берём только детали в радиусе и теги CollectionService.
+			local own = getOwnRoot()
+			if own then
+				local r = math.min(CONFIG.KillAura.range or 24, CONFIG.Crystal.range or 60) + 8
+				local params = RaycastParams.new()
+				params.FilterType = Enum.RaycastFilterType.Exclude
+				params.FilterDescendantsInstances = { player.Character }
+				local parts = workspace:GetPartBoundsInBox(
+					CFrame.new(own.Position), Vector3.new(r * 2, r * 2, r * 2), params)
+				for _, p in ipairs(parts) do
+					consider(p, out, seen)
+					if p.Parent then consider(p.Parent, out, seen) end
 				end
+			end
+			for _, tag in ipairs(CONFIG.Targeting.Tags) do
+				for _, obj in CollectionService:GetTagged(tag) do consider(obj, out, seen) end
 			end
 		end
 	end)
@@ -267,3 +263,19 @@ local function isValidTarget(e, s, ownRoot)
 			or model:GetAttribute("OwnerUserId")
 			or model:GetAttribute("Owner")
 		if own == player.UserId or own == player then return false end
+	end
+
+	-- живость
+	if e.health and e.health <= 0 then return false end
+	if e.humanoid and e.humanoid.Health <= 0 then return false end
+	if not e.root or not e.root.Parent then return false end
+
+	-- "необычные гуманоиды" без HP: пускаем только если имя/тег совпал
+	if not e.humanoid and not e.health and not e.recognized then
+		if not tc.AllowNoHealth then return false end
+	end
+
+	if not passFilter(e, s.filter) then return false end
+
+	local dist = (e.root.Position - ownRoot.Position).Magnitude
+	if dist > (s.range or 60) then return false end

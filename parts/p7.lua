@@ -1,48 +1,3 @@
-		l.Size = UDim2.new(1, -36, 0, size + 8)
-		l.Position = UDim2.fromOffset(x or 18, y)
-		l.BackgroundTransparency = 1
-		l.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
-		l.TextSize = size
-		l.TextColor3 = color
-		l.TextXAlignment = Enum.TextXAlignment.Left
-		l.Text = ""
-		if key then HUD[key] = l end
-		return l
-	end
-
-	local dot = Instance.new("Frame", frame)
-	dot.Size = UDim2.fromOffset(9, 9)
-	dot.Position = UDim2.fromOffset(18, 21)
-	dot.BackgroundColor3 = Color3.fromRGB(120, 132, 255)
-	dot.BorderSizePixel = 0
-	Instance.new("UICorner", dot).CornerRadius = UDim.new(0, 5)
-
-	mkText(14, 21, Color3.fromRGB(242, 243, 248), true, nil, 36).Text = "Aura Suite"
-	mkText(40, 12, Color3.fromRGB(150, 154, 168), false, nil, 36).Text = "Crystal · Anchor · Combat"
-
-	local sep = Instance.new("Frame", frame)
-	sep.Size = UDim2.new(1, -36, 0, 1)
-	sep.Position = UDim2.fromOffset(18, 64)
-	sep.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-	sep.BackgroundTransparency = 0.9
-	sep.BorderSizePixel = 0
-
-	local function pill(y, key, dotKey)
-		local p = Instance.new("Frame", frame)
-		p.Size = UDim2.new(1, -36, 0, 32)
-		p.Position = UDim2.fromOffset(18, y)
-		p.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-		p.BackgroundTransparency = 0.94
-		p.BorderSizePixel = 0
-		Instance.new("UICorner", p).CornerRadius = UDim.new(0, 10)
-		local d = Instance.new("Frame", p)
-		d.Size = UDim2.fromOffset(8, 8)
-		d.Position = UDim2.fromOffset(12, 12)
-		d.BackgroundColor3 = Color3.fromRGB(120, 124, 138)
-		d.BorderSizePixel = 0
-		Instance.new("UICorner", d).CornerRadius = UDim.new(0, 4)
-		HUD[dotKey] = d
-		local l = Instance.new("TextLabel", p)
 		l.Size = UDim2.new(1, -40, 1, 0)
 		l.Position = UDim2.fromOffset(28, 0)
 		l.BackgroundTransparency = 1
@@ -134,10 +89,12 @@ local function updateHUD()
 
 	local learned = 0
 	for _ in pairs(ARG_STATS) do learned = learned + 1 end
-	HUD.info.Text = ("источники %d/%d/%d/%d/%d · целей %d · N:%s M:%s · обучено %d"):format(
+	HUD.info.Text = ("ист %d/%d/%d/%d/%d · цели %d · N:%s M:%s V:%s T:%s · обуч %d"):format(
 		#SOURCES.crystal, #SOURCES.anchor, #SOURCES.block, #SOURCES.charge, #SOURCES.attack, #TARGETS,
 		STATE.killaura.enabled and "on" or "off",
-		STATE.mace.enabled and "on" or "off", learned)
+		STATE.mace.enabled and "on" or "off",
+		STATE.airstack.enabled and "on" or "off",
+		STATE.speed.enabled and "on" or "off", learned)
 
 	if STATE.warn and os.clock() - STATE.warnAt < 5 then
 		HUD.warn.Text = STATE.warn
@@ -196,6 +153,25 @@ GENV.AURA_CONNS[#GENV.AURA_CONNS + 1] = UserInputService.InputBegan:Connect(func
 	elseif kc == K.ToggleMace then
 		STATE.mace.enabled = not STATE.mace.enabled
 		print(("[Auras] Mace Helper: %s"):format(STATE.mace.enabled and "ВКЛ" or "выкл"))
+	elseif kc == K.ToggleAirStack then
+		STATE.airstack.enabled = not STATE.airstack.enabled
+		STATE.airstack.stack = 0
+		print(("[Auras] AirStack (%s): %s"):format(CONFIG.AirStack.mode, STATE.airstack.enabled and "ВКЛ" or "выкл"))
+	elseif kc == K.ToggleSpeed then
+		STATE.speed.enabled = not STATE.speed.enabled
+		local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+		if hum then
+			if STATE.speed.enabled then
+				if STATE.speed.origWalk == nil then STATE.speed.origWalk = hum.WalkSpeed end
+				if STATE.speed.origJump == nil then STATE.speed.origJump = hum.JumpPower end
+				hum.WalkSpeed = CONFIG.Speed.walkSpeed or 75
+				pcall(function() hum.JumpPower = CONFIG.Speed.jumpPower or 60 end)
+			else
+				hum.WalkSpeed = STATE.speed.origWalk or 16
+				pcall(function() hum.JumpPower = STATE.speed.origJump or 50 end)
+			end
+		end
+		print(("[Auras] Speed: %s"):format(STATE.speed.enabled and "ВКЛ" or "выкл"))
 	end
 end)
 
@@ -267,3 +243,39 @@ local function pickAttackTool(preferMace)
 	for _, s in ipairs(list) do
 		if s.type == "tool" and s.inst and s.inst.Parent then
 			local n = lowerRU(s.name or "")
+			if n:find("mace", 1, true) or n:find("булава", 1, true) then
+				bestMace = s
+			elseif not best then
+				best = s
+			end
+		end
+	end
+	if preferMace and bestMace then return bestMace end
+	return bestMace or best or pickSource("attack")
+end
+
+-- 🇷🇺 Найти мейс в инвентаре/руке
+local function findMaceTool()
+	local char = player.Character
+	local backpack = player:FindFirstChild("Backpack")
+	for _, container in ipairs({ char, backpack }) do
+		if container then
+			for _, obj in container:GetChildren() do
+				if obj:IsA("Tool") then
+					local n = lowerRU(obj.Name)
+					if n:find("mace", 1, true) or n:find("булав", 1, true) then return obj end
+				end
+			end
+		end
+	end
+	for _, src in ipairs(SOURCES.attack or {}) do
+		if src.type == "tool" and src.inst and src.inst.Parent then
+			local n = lowerRU(src.name or "")
+			if n:find("mace", 1, true) or n:find("булав", 1, true) then return src.inst end
+		end
+	end
+	return nil
+end
+
+-- Текущий предмет в руках (чтобы вернуть после удара мейсом)
+local function heldTool()
