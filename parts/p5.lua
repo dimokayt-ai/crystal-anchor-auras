@@ -1,28 +1,3 @@
-			end
-		else
-			dedup[#dedup + 1] = e
-		end
-	end
-	TARGETS = dedup
-end
-
--- =================================================================
--- 8. ВЫБОР ЦЕЛИ
--- =================================================================
-local function getSettings(kind)
-	local base = (kind == "crystal") and CONFIG.Crystal or CONFIG.Anchor
-	local preset = CONFIG.Presets[PRESET_IDX] or {}
-	local s = {}
-	for k, v in pairs(base) do s[k] = v end
-	for k, v in pairs(preset) do
-		if k ~= "name" then s[k] = v end
-	end
-	return s
-end
-
-local function passFilter(e, filter)
-	if filter == "Players" then return e.isPlayer end
-	if filter == "Mobs" then return not e.isPlayer end
 	if filter == "Bosses" then return e.isBoss or e.isElite end
 	if filter == "NonBoss" then return not (e.isBoss or e.isElite) end
 	return true -- All
@@ -185,18 +160,35 @@ local function buildArgVariants(phase, t, pos, src)
 		add({ "Place", pos, item })
 		add({ "Place", cf, item })
 		add({ "place", pos, item })
-		add({ "Place", pos })
+		add({ "Build", pos, item })
+		add({ "build", pos, item })
+		add({ "Place", item, pos })
+		add({ "Place", item, cf })
 		add({ pos, item })
 		add({ cf, item })
 		add({ item, pos })
+		add({ item, cf })
+		add({ "Place", pos })
 		add({ pos })
+		add({ cf })
 	end
 
 	if name:find("itemaction", 1, true) or name:find("use", 1, true) then
 		add({ "Use", pos })
 		add({ "use", pos })
+		add({ "Use", t.model })
+		add({ "Activate", pos })
 		add({ pos })
 		add({ t.model })
+	end
+
+	if name:find("attack", 1, true) or name:find("hit", 1, true) or name:find("swing", 1, true) then
+		add({ t.model })
+		add({ t.root })
+		add({ pos })
+		add({ t.model, pos })
+		add({ "Attack", t.model })
+		add({})
 	end
 
 	-- общие
@@ -211,8 +203,10 @@ local function buildArgVariants(phase, t, pos, src)
 	return variants
 end
 
--- Память успешных вариантов аргументов: SRC_ARG_OK[srcName..phase] = index
-local SRC_ARG_OK = {}
+-- Память успешных вариантов аргументов (переживает перезапуск скрипта)
+local SRC_ARG_OK = GENV.AURA_ARG_OK or {}
+GENV.AURA_ARG_OK = SRC_ARG_OK
+local SRC_ARG_FAIL = {} -- неудачи в этой сессии, чтобы не долбить одно и то же
 
 local function nextArgs(phase, t, pos, s, src)
 	local vars = buildArgVariants(phase, t, pos, src)
@@ -232,3 +226,15 @@ end
 
 local function invokeRF(rf, args, timeout)
 	timeout = timeout or 2
+	local done, result = false, false
+	task.spawn(function()
+		local ok = pcall(function() return rf:InvokeServer(table.unpack(args)) end)
+		result = ok
+		done = true
+	end)
+	local t0 = os.clock()
+	while not done and os.clock() - t0 < timeout do
+		task.wait(0.05)
+	end
+	return done and result
+end

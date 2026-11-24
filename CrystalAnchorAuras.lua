@@ -682,12 +682,11 @@ local function rescanSources()
 	local function scanServices(root)
 		if not root then return end
 		for _, d in root:GetDescendants() do
-			if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then
+			if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") or d:IsA("UnreliableRemoteEvent") then
 				local phase = classify(d.Name)
 				if phase then
-					local t = d:IsA("RemoteEvent") and "remoteEvent" or "remoteFunction"
+					local t = d:IsA("RemoteFunction") and "remoteFunction" or "remoteEvent"
 					add(phase, { type = t, inst = d, name = d.Name, exact = isExact(d.Name, phase) })
-					-- build/place ремоуты полезны и для кристалла тоже
 					local ln = lowerRU(d.Name)
 					if (ln:find("build", 1, true) or ln:find("place", 1, true)) and phase ~= "crystal" then
 						add("crystal", { type = t, inst = d, name = d.Name, exact = isExact(d.Name, "crystal") })
@@ -1121,18 +1120,35 @@ local function buildArgVariants(phase, t, pos, src)
 		add({ "Place", pos, item })
 		add({ "Place", cf, item })
 		add({ "place", pos, item })
-		add({ "Place", pos })
+		add({ "Build", pos, item })
+		add({ "build", pos, item })
+		add({ "Place", item, pos })
+		add({ "Place", item, cf })
 		add({ pos, item })
 		add({ cf, item })
 		add({ item, pos })
+		add({ item, cf })
+		add({ "Place", pos })
 		add({ pos })
+		add({ cf })
 	end
 
 	if name:find("itemaction", 1, true) or name:find("use", 1, true) then
 		add({ "Use", pos })
 		add({ "use", pos })
+		add({ "Use", t.model })
+		add({ "Activate", pos })
 		add({ pos })
 		add({ t.model })
+	end
+
+	if name:find("attack", 1, true) or name:find("hit", 1, true) or name:find("swing", 1, true) then
+		add({ t.model })
+		add({ t.root })
+		add({ pos })
+		add({ t.model, pos })
+		add({ "Attack", t.model })
+		add({})
 	end
 
 	-- общие
@@ -1147,8 +1163,10 @@ local function buildArgVariants(phase, t, pos, src)
 	return variants
 end
 
--- Память успешных вариантов аргументов: SRC_ARG_OK[srcName..phase] = index
-local SRC_ARG_OK = {}
+-- Память успешных вариантов аргументов (переживает перезапуск скрипта)
+local SRC_ARG_OK = GENV.AURA_ARG_OK or {}
+GENV.AURA_ARG_OK = SRC_ARG_OK
+local SRC_ARG_FAIL = {} -- неудачи в этой сессии, чтобы не долбить одно и то же
 
 local function nextArgs(phase, t, pos, s, src)
 	local vars = buildArgVariants(phase, t, pos, src)
@@ -1193,7 +1211,10 @@ local function activateSource(src, phase, t, pos, s)
 		-- Удар (фаза attack) остаётся ЛКМ — его и нужно ломать/подрывать.
 		local placePhase = (phase == "crystal" or phase == "anchor" or phase == "block" or phase == "charge")
 		if placePhase and (s.placeClick or "Right") == "Right" then
-			return pressRightClick(pos)
+			-- ПКМ + Activate: разные игры слушают разные сигналы
+			local pok = pressRightClick(pos)
+			pcall(function() src.inst:Activate() end)
+			return pok, nil, nil
 		end
 		if mode == "VirtualClick" or mode == "Both" then
 			virtualClick(pos)
@@ -1202,21 +1223,24 @@ local function activateSource(src, phase, t, pos, s)
 		if not fired and mode == "VirtualClick" then
 			fired = pcall(function() src.inst:Activate() end)
 		end
-		return fired
+		return fired, nil, nil
 
 	elseif src.type == "remoteEvent" then
 		local args, idx, key = nextArgs(phase, t, pos, s, src)
 		local ok = pcall(function()
 			src.inst:FireServer(table.unpack(args))
 		end)
-		if ok then SRC_ARG_OK[key] = idx end
-		return ok
+		-- для placement не помечаем "успех" по факту pcall — ждём подтверждения
+		local placePhase = (phase == "crystal" or phase == "block" or phase == "anchor" or phase == "charge")
+		if ok and not placePhase then SRC_ARG_OK[key] = idx end
+		return ok, idx, key
 
 	elseif src.type == "remoteFunction" then
 		local args, idx, key = nextArgs(phase, t, pos, s, src)
 		local ok = invokeRF(src.inst, args, s.rfTimeout or 2)
-		if ok then SRC_ARG_OK[key] = idx end
-		return ok
+		local placePhase = (phase == "crystal" or phase == "block" or phase == "anchor" or phase == "charge")
+		if ok and not placePhase then SRC_ARG_OK[key] = idx end
+		return ok, idx, key
 
 	elseif src.type == "prompt" then
 		local ok = pcall(function() src.inst:InputHoldBegin() end)
@@ -1237,8 +1261,9 @@ local function activateSource(src, phase, t, pos, s)
 		local fn = src.mod[src.fns[idx]]
 		if type(fn) ~= "function" then return false end
 		-- пробуем варианты: fn(args...) -> fn(mod, args...) -> fn()
-		for _ = 1, #ARG_VARIANTS do
-			local args = nextArgs(phase, t, pos, s)
+		local vars = buildArgVariants(phase, t, pos, src)
+		for i = 1, math.min(#vars, 8) do
+			local args = vars[i]
 			if pcall(fn, table.unpack(args)) then return true end
 			if pcall(fn, src.mod, table.unpack(args)) then return true end
 		end
@@ -1289,22 +1314,31 @@ local function hitPlaced(s, t, pos)
 		end
 	end
 	local atk = pickSource("attack")
-	if atk and atk.type == "tool" then
-		local ok = ensureEquipped(atk.inst)
-		if ok then
-			if s.aimCamera then aimCamera(target) end
-			local mode = s.toolClickMode or "Activate"
-			if mode == "VirtualClick" or mode == "Both" then virtualClick(target) end
-			return pcall(function() atk.inst:Activate() end)
+	if atk then
+		if atk.type == "tool" then
+			local ok = ensureEquipped(atk.inst)
+			if ok then
+				if s.aimCamera then aimCamera(target, s.smoothAim or 0.25) end
+				local mode = s.toolClickMode or "Activate"
+				if mode == "VirtualClick" or mode == "Both" then virtualClick(target) end
+				pcall(function() atk.inst:Activate() end)
+				return true
+			end
+		elseif atk.type == "remoteEvent" or atk.type == "remoteFunction" then
+			-- Attack remote (в дампе был RemoteEvent Attack) — шлём и как атаку, и как клик
+			activateSource(atk, "attack", t, target, s)
+			return true
 		end
-	-- фолбэк: бьём тем же инструментом
-	elseif s.toolClickMode ~= "none" then
+	end
+	-- фолбэк: бьём тем же кристаллом
+	if s.toolClickMode ~= "none" then
 		local src = pickSource("crystal")
 		if src and src.type == "tool" then
 			local ok = ensureEquipped(src.inst)
 			if ok then
-				if s.aimCamera then aimCamera(target) end
-				return pcall(function() src.inst:Activate() end)
+				if s.aimCamera then aimCamera(target, s.smoothAim or 0.25) end
+				pcall(function() src.inst:Activate() end)
+				return true
 			end
 		end
 	end
@@ -1328,7 +1362,8 @@ local function fireCrystal(s, t, pos)
 		if not (sameSpot and fresh) then
 			local bsrc = pickSource("block")
 			if bsrc then
-				activateSource(bsrc, "block", t, pos, s)
+				local bok, bidx, bkey = activateSource(bsrc, "block", t, pos, s)
+				if bok and bkey and bidx then SRC_ARG_OK[bkey] = bidx end
 				STATE.crystal.blockPos = pos
 				STATE.crystal.blockAt = os.clock()
 				local bd = s.blockDelay
@@ -1338,9 +1373,27 @@ local function fireCrystal(s, t, pos)
 		end
 	end
 
-	local ok = activateSource(src, "crystal", t, pos, s)
+	local ok, idx, key = activateSource(src, "crystal", t, pos, s)
+	-- если нашли Tool, но в игре есть и BuildingAction/remote — дублируем через remote (часто в воксельных играх именно он ставит)
+	if src.type == "tool" then
+		for _, rs in ipairs(SOURCES.crystal or {}) do
+			if rs.type == "remoteEvent" or rs.type == "remoteFunction" then
+				activateSource(rs, "crystal", t, pos, s)
+				break
+			end
+		end
+	end
 	STATE.crystal.shots = STATE.crystal.shots + 1
 	logAction({ kind = "crystal", ok = ok, src = src.name, pos = { pos.X, pos.Y, pos.Z }, target = t.name })
+
+	-- подтверждение: если кристалл реально появился — запоминаем вариант аргумента
+	if ok and key and idx then
+		task.defer(function()
+			local part = findPlacedCrystal(pos)
+			if part then SRC_ARG_OK[key] = idx end
+		end)
+	end
+
 	if ok and s.twoPhase and s.twoPhaseMode ~= "none" then
 		local td = s.twoPhaseDelay
 		if td == nil then td = 0 end
@@ -1571,11 +1624,13 @@ GENV.AURA_CONNS[#GENV.AURA_CONNS + 1] = UserInputService.InputBegan:Connect(func
 		STATE.crystal.enabled = not STATE.crystal.enabled
 		STATE.crystal.shots = 0
 		STATE.crystal.target = nil
+		if STATE.crystal.enabled then task.spawn(function() pcall(rescanSources); pcall(rescanTargets, true) end) end
 		print(("[Auras] Crystal Aura: %s"):format(STATE.crystal.enabled and "ВКЛ" or "выкл"))
 	elseif kc == K.ToggleAnchor or kc == K.ToggleAnchorAlt then
 		STATE.anchor.enabled = not STATE.anchor.enabled
 		STATE.anchor.shots = 0
 		STATE.anchor.target = nil
+		if STATE.anchor.enabled then task.spawn(function() pcall(rescanSources); pcall(rescanTargets, true) end) end
 		print(("[Auras] Anchor Aura: %s"):format(STATE.anchor.enabled and "ВКЛ" or "выкл"))
 	elseif kc == K.CyclePreset then
 		PRESET_IDX = (PRESET_IDX % #CONFIG.Presets) + 1
@@ -1855,7 +1910,7 @@ task.delay(0.4, function()
 		print("[Auras] шаг 3/4: источники просканированы")
 		task.delay(0.5, function()
 			if CONFIG.Scan.DumpAll then pcall(dumpWorld) end
-			print(("[Auras] шаг 4/4: старт завершён. Пресетов: %d | Z/G/H/K/J"):format(#CONFIG.Presets))
+			print(("[Auras] шаг 4/4: старт завершён. Пресетов: %d | Z/G/N/M/H/K/J/L"):format(#CONFIG.Presets))
 		end)
 	end)
 end)

@@ -1,22 +1,3 @@
-						exact = isExact(label, phase),
-					})
-				end
-			elseif d:IsA("ModuleScript") then
-				local phase = classify(d.Name)
-				if phase and CONFIG.Scan.RequireModules then
-					local ok, mod = pcall(require, d)
-					if ok and type(mod) == "table" then
-						local fns = {}
-						for k, v in pairs(mod) do
-							if type(v) == "function" then fns[#fns + 1] = tostring(k) end
-						end
-						if #fns > 0 then
-							add(phase, {
-								type = "module", inst = d, mod = mod, fns = fns,
-								name = d.Name, exact = isExact(d.Name, phase),
-							})
-						end
-					end
 				end
 			end
 		end
@@ -232,3 +213,28 @@ local function rescanTargets(full)
 			if not byRoot[e.root] then
 				byRoot[e.root] = true
 				dedup[#dedup + 1] = e
+			end
+		else
+			dedup[#dedup + 1] = e
+		end
+	end
+	TARGETS = dedup
+end
+
+-- =================================================================
+-- 8. ВЫБОР ЦЕЛИ
+-- =================================================================
+local function getSettings(kind)
+	local base = (kind == "crystal") and CONFIG.Crystal or CONFIG.Anchor
+	local preset = CONFIG.Presets[PRESET_IDX] or {}
+	local s = {}
+	for k, v in pairs(base) do s[k] = v end
+	for k, v in pairs(preset) do
+		if k ~= "name" then s[k] = v end
+	end
+	return s
+end
+
+local function passFilter(e, filter)
+	if filter == "Players" then return e.isPlayer end
+	if filter == "Mobs" then return not e.isPlayer end

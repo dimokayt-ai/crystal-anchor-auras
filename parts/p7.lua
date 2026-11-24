@@ -1,3 +1,20 @@
+		else
+			-- нет оружия — ещё раз ПКМ по анчору (в некоторых играх это подрывает)
+			activateSource(src, "anchor", t, pos, s)
+		end
+	elseif seq == "charge_then_use" then
+		local csrc = pickSource("charge")
+		if csrc then
+			activateSource(csrc, "charge", t, pos, s)
+			task.wait(ct)
+		end
+		activateSource(src, "anchor", t, pos, s)
+	elseif seq == "use_twice" then
+		activateSource(src, "anchor", t, pos, s)
+		task.wait(ct)
+		activateSource(src, "anchor", t, pos, s)
+	else
+		activateSource(src, "anchor", t, pos, s)
 	end
 	STATE.anchor.shots = STATE.anchor.shots + 1
 	logAction({ kind = "anchor", seq = seq, src = src.name, charge = (pickSource("charge") or {}).name, pos = { pos.X, pos.Y, pos.Z }, target = t.name })
@@ -167,11 +184,13 @@ GENV.AURA_CONNS[#GENV.AURA_CONNS + 1] = UserInputService.InputBegan:Connect(func
 		STATE.crystal.enabled = not STATE.crystal.enabled
 		STATE.crystal.shots = 0
 		STATE.crystal.target = nil
+		if STATE.crystal.enabled then task.spawn(function() pcall(rescanSources); pcall(rescanTargets, true) end) end
 		print(("[Auras] Crystal Aura: %s"):format(STATE.crystal.enabled and "ВКЛ" or "выкл"))
 	elseif kc == K.ToggleAnchor or kc == K.ToggleAnchorAlt then
 		STATE.anchor.enabled = not STATE.anchor.enabled
 		STATE.anchor.shots = 0
 		STATE.anchor.target = nil
+		if STATE.anchor.enabled then task.spawn(function() pcall(rescanSources); pcall(rescanTargets, true) end) end
 		print(("[Auras] Anchor Aura: %s"):format(STATE.anchor.enabled and "ВКЛ" or "выкл"))
 	elseif kc == K.CyclePreset then
 		PRESET_IDX = (PRESET_IDX % #CONFIG.Presets) + 1
@@ -219,16 +238,3 @@ local function auraLoop(kind)
 		if st.enabled then
 			-- отступ при низком HP
 			local ratio = myHpRatio()
-			if s.disengageHP and ratio and ratio < s.disengageHP then
-				st.enabled = false
-				setWarn(("HP %.0f%% < %.0f%% — %s аура выключена"):format(
-					ratio * 100, s.disengageHP * 100,
-					kind == "crystal" and "Crystal" or "Anchor"))
-			else
-				local ownRoot = getOwnRoot()
-				if ownRoot then
-					local t = selectTarget(s, ownRoot)
-					st.target = t
-					if t then
-						local pos = resolvePosition(s, t)
-						local ok = pcall(function()

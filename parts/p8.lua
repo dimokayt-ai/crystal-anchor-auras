@@ -1,3 +1,16 @@
+			if s.disengageHP and ratio and ratio < s.disengageHP then
+				st.enabled = false
+				setWarn(("HP %.0f%% < %.0f%% — %s аура выключена"):format(
+					ratio * 100, s.disengageHP * 100,
+					kind == "crystal" and "Crystal" or "Anchor"))
+			else
+				local ownRoot = getOwnRoot()
+				if ownRoot then
+					local t = selectTarget(s, ownRoot)
+					st.target = t
+					if t then
+						local pos = resolvePosition(s, t)
+						local ok = pcall(function()
 							if kind == "crystal" then
 								fireCrystal(s, t, pos)
 							else
@@ -217,7 +230,7 @@ task.delay(0.4, function()
 		print("[Auras] шаг 3/4: источники просканированы")
 		task.delay(0.5, function()
 			if CONFIG.Scan.DumpAll then pcall(dumpWorld) end
-			print(("[Auras] шаг 4/4: старт завершён. Пресетов: %d | Z/G/H/K/J"):format(#CONFIG.Presets))
+			print(("[Auras] шаг 4/4: старт завершён. Пресетов: %d | Z/G/N/M/H/K/J/L"):format(#CONFIG.Presets))
 		end)
 	end)
 end)

@@ -1,15 +1,3 @@
-	local done, result = false, false
-	task.spawn(function()
-		local ok = pcall(function() return rf:InvokeServer(table.unpack(args)) end)
-		result = ok
-		done = true
-	end)
-	local t0 = os.clock()
-	while not done and os.clock() - t0 < timeout do
-		task.wait(0.05)
-	end
-	return done and result
-end
 
 local function activateSource(src, phase, t, pos, s)
 	if not sourceValid(src) then return false end
@@ -23,7 +11,10 @@ local function activateSource(src, phase, t, pos, s)
 		-- Удар (фаза attack) остаётся ЛКМ — его и нужно ломать/подрывать.
 		local placePhase = (phase == "crystal" or phase == "anchor" or phase == "block" or phase == "charge")
 		if placePhase and (s.placeClick or "Right") == "Right" then
-			return pressRightClick(pos)
+			-- ПКМ + Activate: разные игры слушают разные сигналы
+			local pok = pressRightClick(pos)
+			pcall(function() src.inst:Activate() end)
+			return pok, nil, nil
 		end
 		if mode == "VirtualClick" or mode == "Both" then
 			virtualClick(pos)
@@ -32,21 +23,24 @@ local function activateSource(src, phase, t, pos, s)
 		if not fired and mode == "VirtualClick" then
 			fired = pcall(function() src.inst:Activate() end)
 		end
-		return fired
+		return fired, nil, nil
 
 	elseif src.type == "remoteEvent" then
 		local args, idx, key = nextArgs(phase, t, pos, s, src)
 		local ok = pcall(function()
 			src.inst:FireServer(table.unpack(args))
 		end)
-		if ok then SRC_ARG_OK[key] = idx end
-		return ok
+		-- для placement не помечаем "успех" по факту pcall — ждём подтверждения
+		local placePhase = (phase == "crystal" or phase == "block" or phase == "anchor" or phase == "charge")
+		if ok and not placePhase then SRC_ARG_OK[key] = idx end
+		return ok, idx, key
 
 	elseif src.type == "remoteFunction" then
 		local args, idx, key = nextArgs(phase, t, pos, s, src)
 		local ok = invokeRF(src.inst, args, s.rfTimeout or 2)
-		if ok then SRC_ARG_OK[key] = idx end
-		return ok
+		local placePhase = (phase == "crystal" or phase == "block" or phase == "anchor" or phase == "charge")
+		if ok and not placePhase then SRC_ARG_OK[key] = idx end
+		return ok, idx, key
 
 	elseif src.type == "prompt" then
 		local ok = pcall(function() src.inst:InputHoldBegin() end)
@@ -67,8 +61,9 @@ local function activateSource(src, phase, t, pos, s)
 		local fn = src.mod[src.fns[idx]]
 		if type(fn) ~= "function" then return false end
 		-- пробуем варианты: fn(args...) -> fn(mod, args...) -> fn()
-		for _ = 1, #ARG_VARIANTS do
-			local args = nextArgs(phase, t, pos, s)
+		local vars = buildArgVariants(phase, t, pos, src)
+		for i = 1, math.min(#vars, 8) do
+			local args = vars[i]
 			if pcall(fn, table.unpack(args)) then return true end
 			if pcall(fn, src.mod, table.unpack(args)) then return true end
 		end
@@ -119,22 +114,31 @@ local function hitPlaced(s, t, pos)
 		end
 	end
 	local atk = pickSource("attack")
-	if atk and atk.type == "tool" then
-		local ok = ensureEquipped(atk.inst)
-		if ok then
-			if s.aimCamera then aimCamera(target) end
-			local mode = s.toolClickMode or "Activate"
-			if mode == "VirtualClick" or mode == "Both" then virtualClick(target) end
-			return pcall(function() atk.inst:Activate() end)
+	if atk then
+		if atk.type == "tool" then
+			local ok = ensureEquipped(atk.inst)
+			if ok then
+				if s.aimCamera then aimCamera(target, s.smoothAim or 0.25) end
+				local mode = s.toolClickMode or "Activate"
+				if mode == "VirtualClick" or mode == "Both" then virtualClick(target) end
+				pcall(function() atk.inst:Activate() end)
+				return true
+			end
+		elseif atk.type == "remoteEvent" or atk.type == "remoteFunction" then
+			-- Attack remote (в дампе был RemoteEvent Attack) — шлём и как атаку, и как клик
+			activateSource(atk, "attack", t, target, s)
+			return true
 		end
-	-- фолбэк: бьём тем же инструментом
-	elseif s.toolClickMode ~= "none" then
+	end
+	-- фолбэк: бьём тем же кристаллом
+	if s.toolClickMode ~= "none" then
 		local src = pickSource("crystal")
 		if src and src.type == "tool" then
 			local ok = ensureEquipped(src.inst)
 			if ok then
-				if s.aimCamera then aimCamera(target) end
-				return pcall(function() src.inst:Activate() end)
+				if s.aimCamera then aimCamera(target, s.smoothAim or 0.25) end
+				pcall(function() src.inst:Activate() end)
+				return true
 			end
 		end
 	end
@@ -158,7 +162,8 @@ local function fireCrystal(s, t, pos)
 		if not (sameSpot and fresh) then
 			local bsrc = pickSource("block")
 			if bsrc then
-				activateSource(bsrc, "block", t, pos, s)
+				local bok, bidx, bkey = activateSource(bsrc, "block", t, pos, s)
+				if bok and bkey and bidx then SRC_ARG_OK[bkey] = bidx end
 				STATE.crystal.blockPos = pos
 				STATE.crystal.blockAt = os.clock()
 				local bd = s.blockDelay
@@ -168,9 +173,27 @@ local function fireCrystal(s, t, pos)
 		end
 	end
 
-	local ok = activateSource(src, "crystal", t, pos, s)
+	local ok, idx, key = activateSource(src, "crystal", t, pos, s)
+	-- если нашли Tool, но в игре есть и BuildingAction/remote — дублируем через remote (часто в воксельных играх именно он ставит)
+	if src.type == "tool" then
+		for _, rs in ipairs(SOURCES.crystal or {}) do
+			if rs.type == "remoteEvent" or rs.type == "remoteFunction" then
+				activateSource(rs, "crystal", t, pos, s)
+				break
+			end
+		end
+	end
 	STATE.crystal.shots = STATE.crystal.shots + 1
 	logAction({ kind = "crystal", ok = ok, src = src.name, pos = { pos.X, pos.Y, pos.Z }, target = t.name })
+
+	-- подтверждение: если кристалл реально появился — запоминаем вариант аргумента
+	if ok and key and idx then
+		task.defer(function()
+			local part = findPlacedCrystal(pos)
+			if part then SRC_ARG_OK[key] = idx end
+		end)
+	end
+
 	if ok and s.twoPhase and s.twoPhaseMode ~= "none" then
 		local td = s.twoPhaseDelay
 		if td == nil then td = 0 end
@@ -215,20 +238,3 @@ local function fireAnchor(s, t, pos)
 		if atk and atk.type == "tool" and ensureEquipped(atk.inst) then
 			if s.aimCamera then aimCamera(pos) end
 			pcall(function() atk.inst:Activate() end)
-		else
-			-- нет оружия — ещё раз ПКМ по анчору (в некоторых играх это подрывает)
-			activateSource(src, "anchor", t, pos, s)
-		end
-	elseif seq == "charge_then_use" then
-		local csrc = pickSource("charge")
-		if csrc then
-			activateSource(csrc, "charge", t, pos, s)
-			task.wait(ct)
-		end
-		activateSource(src, "anchor", t, pos, s)
-	elseif seq == "use_twice" then
-		activateSource(src, "anchor", t, pos, s)
-		task.wait(ct)
-		activateSource(src, "anchor", t, pos, s)
-	else
-		activateSource(src, "anchor", t, pos, s)

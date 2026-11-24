@@ -1,9 +1,3 @@
-	aimCamera = false,
-	toolClickMode = "Both",  -- клик по позиции, как при ручной установке
-	placeClick = "Right",    -- ПКМ = ставить
-	equipDelay = 0.05,
-	argIndex = 1,               -- как и у кристалла: без ротации аргов
-}
 
 CONFIG.KillAura = {
 	enabled = false,
@@ -232,3 +226,15 @@ local function pressRightClick(worldPos)
 			local okr, rayRes = pcall(function()
 				local origin = cam.CFrame.Position
 				local dir = (worldPos - origin)
+				if dir.Magnitude < 0.001 then return nil end
+				local rp = RaycastParams.new()
+				rp.FilterType = Enum.RaycastFilterType.Exclude
+				rp.FilterDescendantsInstances = { player.Character }
+				return workspace:Raycast(origin, dir.Unit * 200, rp)
+			end)
+			if okr and rayRes then hitPos = rayRes.Position end
+			-- фолбэк: луч вниз от точки (ищем блок под ней)
+			if not hitPos then
+				local okd, down = pcall(function()
+					local rp = RaycastParams.new()
+					rp.FilterType = Enum.RaycastFilterType.Exclude

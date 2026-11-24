@@ -1,15 +1,3 @@
-				if dir.Magnitude < 0.001 then return nil end
-				local rp = RaycastParams.new()
-				rp.FilterType = Enum.RaycastFilterType.Exclude
-				rp.FilterDescendantsInstances = { player.Character }
-				return workspace:Raycast(origin, dir.Unit * 200, rp)
-			end)
-			if okr and rayRes then hitPos = rayRes.Position end
-			-- фолбэк: луч вниз от точки (ищем блок под ней)
-			if not hitPos then
-				local okd, down = pcall(function()
-					local rp = RaycastParams.new()
-					rp.FilterType = Enum.RaycastFilterType.Exclude
 					rp.FilterDescendantsInstances = { player.Character }
 					return workspace:Raycast(worldPos + Vector3.new(0, 8, 0), Vector3.new(0, -20, 0), rp)
 				end)
@@ -214,12 +202,11 @@ local function rescanSources()
 	local function scanServices(root)
 		if not root then return end
 		for _, d in root:GetDescendants() do
-			if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then
+			if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") or d:IsA("UnreliableRemoteEvent") then
 				local phase = classify(d.Name)
 				if phase then
-					local t = d:IsA("RemoteEvent") and "remoteEvent" or "remoteFunction"
+					local t = d:IsA("RemoteFunction") and "remoteFunction" or "remoteEvent"
 					add(phase, { type = t, inst = d, name = d.Name, exact = isExact(d.Name, phase) })
-					-- build/place ремоуты полезны и для кристалла тоже
 					local ln = lowerRU(d.Name)
 					if (ln:find("build", 1, true) or ln:find("place", 1, true)) and phase ~= "crystal" then
 						add("crystal", { type = t, inst = d, name = d.Name, exact = isExact(d.Name, "crystal") })
@@ -232,3 +219,22 @@ local function rescanSources()
 					add(phase, {
 						type = "prompt", inst = d,
 						name = (d.ActionText ~= "" and d.ActionText) or d.Name,
+						exact = isExact(label, phase),
+					})
+				end
+			elseif d:IsA("ModuleScript") then
+				local phase = classify(d.Name)
+				if phase and CONFIG.Scan.RequireModules then
+					local ok, mod = pcall(require, d)
+					if ok and type(mod) == "table" then
+						local fns = {}
+						for k, v in pairs(mod) do
+							if type(v) == "function" then fns[#fns + 1] = tostring(k) end
+						end
+						if #fns > 0 then
+							add(phase, {
+								type = "module", inst = d, mod = mod, fns = fns,
+								name = d.Name, exact = isExact(d.Name, phase),
+							})
+						end
+					end
