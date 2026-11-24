@@ -1,14 +1,3 @@
-	return ok and res
-end
-
-local function pickSource(phase)
-	local list = SOURCES[phase]
-	if not list or #list == 0 then return nil end
-	local start = SOURCE_INDEX[phase] or 1
-	for i = 0, #list - 1 do
-		local idx = ((start - 1 + i) % #list) + 1
-		if sourceValid(list[idx]) then
-			SOURCE_INDEX[phase] = idx
 			return list[idx]
 		end
 	end
@@ -279,3 +268,18 @@ local function isValidTarget(e, s, ownRoot)
 
 	local dist = (e.root.Position - ownRoot.Position).Magnitude
 	if dist > (s.range or 60) then return false end
+
+	if s.aggroOnly and dist > (s.aggroRadius or 25) then return false end
+	if s.requireLoS and not hasLoS(ownRoot.Position, e) then return false end
+
+	return true, dist
+end
+
+local function selectTarget(s, ownRoot)
+	local cands = {}
+	for _, e in ipairs(TARGETS) do
+		local ok, dist = isValidTarget(e, s, ownRoot)
+		if ok then
+			e._dist = dist
+			cands[#cands + 1] = e
+		end

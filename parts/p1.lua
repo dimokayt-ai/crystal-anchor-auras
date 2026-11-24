@@ -273,9 +273,13 @@ CONFIG.MaceHelper = {
 
 CONFIG.AirStack = {
 	enabled = false,
-	mode = "Jump",       -- Jump = стакать прыжки в воздухе | Block = ставить блоки под ноги
+	mode = "Freeze",     -- Freeze = зависнуть в воздухе, сохраняя скорость падения | Jump | Block
+	freezeDrop = 0,      -- 0 = держим высоту; >0 = медленно снижаться
 	jumpPower = 55,
 	jumpDelay = 0.06,
 	stackBoost = 3,      -- сколько раз подпрыгивать подряд
 	blockOffset = 3,     -- куда ставить блок под ногами
 }
+
+CONFIG.Speed = {
+	enabled = false,

@@ -1,12 +1,3 @@
-	local char = player.Character
-	if not char then return nil end
-	for _, obj in char:GetChildren() do
-		if obj:IsA("Tool") then return obj end
-	end
-	return nil
-end
-
-local function restoreTool(tool)
 	if not tool or not tool.Parent then return end
 	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 	if hum then pcall(function() hum:EquipTool(tool) end) end
@@ -159,7 +150,16 @@ task.spawn(function()
 		local hum, root = char and char:FindFirstChildOfClass("Humanoid"), getOwnRoot()
 		if hum and root then
 			local cfg = CONFIG.AirStack
-			if cfg.mode == "Block" then
+			if cfg.mode == "Freeze" then
+				-- Заморозка высоты, но ВСЯ скорость падения остаётся (нужно для мейса).
+				if STATE.airstack.freezeY == nil then STATE.airstack.freezeY = root.Position.Y end
+				local y = STATE.airstack.freezeY - (cfg.freezeDrop or 0)
+				pcall(function()
+					root.CFrame = CFrame.new(root.Position.X, y, root.Position.Z)
+						* (root.CFrame - root.CFrame.Position)
+					-- AssemblyLinearVelocity НЕ трогаем — падение "сохраняется"
+				end)
+			elseif cfg.mode == "Block" then
 				local bsrc = pickSource("block")
 				if bsrc then
 					activateSource(bsrc, "block", { model = char, root = root }, root.Position - Vector3.new(0, cfg.blockOffset or 3, 0), CONFIG.Crystal)

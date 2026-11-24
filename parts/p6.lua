@@ -1,22 +1,3 @@
-			if containsAny(lowerRU(obj.Name), P.Crystal) then
-				local cp = obj:IsA("BasePart") and obj.Position
-					or (obj.PrimaryPart and obj.PrimaryPart.Position) or d.Position
-				local dist = (cp - pos).Magnitude
-				if dist < bestD then best, bestD = obj, dist end
-			end
-		end
-	end)
-	CRYSTAL_FIND_CACHE = { at = now, part = best }
-	return best
-end
-
--- Удар/подрыв после постановки кристалла
-local function hitPlaced(s, t, pos)
-	local target = pos
-	local part = (s.hitAim or s.twoPhaseMode == "findAndSwing") and findPlacedCrystal(pos) or nil
-	if part then
-		target = part:IsA("BasePart") and part.Position
-			or (part.PrimaryPart and part.PrimaryPart.Position) or pos
 	end
 	-- аим только на взрыв, быстро и точно
 	if s.hitAim and target ~= pos then aimCamera(target, 1) end
@@ -186,7 +167,7 @@ local function buildHUD()
 	sg.Parent = pg
 
 	local frame = Instance.new("Frame")
-	frame.Size = UDim2.fromOffset(344, 300)
+	frame.Size = UDim2.fromOffset(344, 380)
 	frame.Position = UDim2.fromOffset(14, 14)
 	frame.BackgroundColor3 = Color3.fromRGB(22, 23, 30)
 	frame.BackgroundTransparency = 0.08
@@ -279,3 +260,26 @@ local function buildHUD()
 		Instance.new("UICorner", d).CornerRadius = UDim.new(0, 4)
 		HUD[dotKey] = d
 		local l = Instance.new("TextLabel", p)
+		l.Size = UDim2.new(1, -40, 1, 0)
+		l.Position = UDim2.fromOffset(28, 0)
+		l.BackgroundTransparency = 1
+		l.Font = Enum.Font.Gotham
+		l.TextSize = 14
+		l.TextColor3 = Color3.fromRGB(238, 239, 245)
+		l.TextXAlignment = Enum.TextXAlignment.Left
+		l.Text = ""
+		HUD[key] = l
+	end
+
+	pill(76, "crystal", "dotC")
+	pill(116, "anchor", "dotA")
+	pill(156, "killaura", "dotK")
+	pill(196, "mace", "dotM")
+
+	mkText(236, 13, Color3.fromRGB(170, 174, 190), false, "preset", 18)
+	mkText(256, 12, Color3.fromRGB(150, 154, 168), false, "srcC", 18)
+	mkText(274, 12, Color3.fromRGB(150, 154, 168), false, "srcA", 18)
+	mkText(294, 13, Color3.fromRGB(235, 236, 242), true, "target", 18)
+
+	local hpTrack = Instance.new("Frame", frame)
+	hpTrack.Size = UDim2.new(1, -36, 0, 5)

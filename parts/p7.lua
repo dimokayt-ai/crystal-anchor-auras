@@ -1,25 +1,4 @@
-		l.Size = UDim2.new(1, -40, 1, 0)
-		l.Position = UDim2.fromOffset(28, 0)
-		l.BackgroundTransparency = 1
-		l.Font = Enum.Font.Gotham
-		l.TextSize = 14
-		l.TextColor3 = Color3.fromRGB(238, 239, 245)
-		l.TextXAlignment = Enum.TextXAlignment.Left
-		l.Text = ""
-		HUD[key] = l
-	end
-
-	pill(76, "crystal", "dotC")
-	pill(116, "anchor", "dotA")
-
-	mkText(160, 13, Color3.fromRGB(170, 174, 190), false, "preset", 18)
-	mkText(182, 12, Color3.fromRGB(150, 154, 168), false, "srcC", 18)
-	mkText(200, 12, Color3.fromRGB(150, 154, 168), false, "srcA", 18)
-	mkText(222, 13, Color3.fromRGB(235, 236, 242), true, "target", 18)
-
-	local hpTrack = Instance.new("Frame", frame)
-	hpTrack.Size = UDim2.new(1, -36, 0, 5)
-	hpTrack.Position = UDim2.fromOffset(18, 244)
+	hpTrack.Position = UDim2.fromOffset(18, 316)
 	hpTrack.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 	hpTrack.BackgroundTransparency = 0.92
 	hpTrack.BorderSizePixel = 0
@@ -31,8 +10,8 @@
 	Instance.new("UICorner", hpFill).CornerRadius = UDim.new(0, 3)
 	HUD.hpFill = hpFill
 
-	mkText(254, 11, Color3.fromRGB(140, 145, 160), false, "info", 18)
-	mkText(274, 11, Color3.fromRGB(255, 105, 110), false, "warn", 18)
+	mkText(326, 11, Color3.fromRGB(140, 145, 160), false, "info", 18)
+	mkText(348, 11, Color3.fromRGB(255, 105, 110), false, "warn", 18)
 
 	HUD.gui = sg
 end
@@ -52,6 +31,21 @@ local function updateHUD()
 	HUD.anchor.TextColor3 = STATE.anchor.enabled
 		and Color3.fromRGB(236, 237, 242) or Color3.fromRGB(160, 162, 172)
 	HUD.dotA.BackgroundColor3 = STATE.anchor.enabled
+		and Color3.fromRGB(86, 214, 148) or Color3.fromRGB(120, 124, 138)
+
+	HUD.killaura.Text = ("[N] Kill Aura    %s   · %d ударов"):format(
+		STATE.killaura.enabled and "ВКЛ" or "выкл", STATE.killaura.shots)
+	HUD.killaura.TextColor3 = STATE.killaura.enabled
+		and Color3.fromRGB(236, 237, 242) or Color3.fromRGB(160, 162, 172)
+	HUD.dotK.BackgroundColor3 = STATE.killaura.enabled
+		and Color3.fromRGB(86, 214, 148) or Color3.fromRGB(120, 124, 138)
+
+	HUD.mace.Text = ("[M] Mace Helper  %s   · %s"):format(
+		STATE.mace.enabled and "ВКЛ" or "выкл",
+		STATE.mace.enabled and "свап+удар" or "выкл")
+	HUD.mace.TextColor3 = STATE.mace.enabled
+		and Color3.fromRGB(236, 237, 242) or Color3.fromRGB(160, 162, 172)
+	HUD.dotM.BackgroundColor3 = STATE.mace.enabled
 		and Color3.fromRGB(86, 214, 148) or Color3.fromRGB(120, 124, 138)
 
 	HUD.preset.Text = ("Пресет  %s   · H"):format(CONFIG.Presets[PRESET_IDX].name)
@@ -156,6 +150,7 @@ GENV.AURA_CONNS[#GENV.AURA_CONNS + 1] = UserInputService.InputBegan:Connect(func
 	elseif kc == K.ToggleAirStack then
 		STATE.airstack.enabled = not STATE.airstack.enabled
 		STATE.airstack.stack = 0
+		STATE.airstack.freezeY = nil
 		print(("[Auras] AirStack (%s): %s"):format(CONFIG.AirStack.mode, STATE.airstack.enabled and "ВКЛ" or "выкл"))
 	elseif kc == K.ToggleSpeed then
 		STATE.speed.enabled = not STATE.speed.enabled
@@ -279,3 +274,12 @@ end
 
 -- Текущий предмет в руках (чтобы вернуть после удара мейсом)
 local function heldTool()
+	local char = player.Character
+	if not char then return nil end
+	for _, obj in char:GetChildren() do
+		if obj:IsA("Tool") then return obj end
+	end
+	return nil
+end
+
+local function restoreTool(tool)

@@ -1,10 +1,3 @@
-	local toPos = targetEntry.root.Position
-	local hit = workspace:Raycast(fromPos, toPos - fromPos, losParams)
-	if not hit then return true end
-	local h = hit.Instance
-	local m = targetEntry.model
-	if h == targetEntry.root then return true end
-	if m:IsA("BasePart") then return h == m end
 	local ok, res = pcall(function() return m:IsAncestorOf(h) end)
 	return ok and res
 end
@@ -17,7 +10,7 @@ local STATE = {
 	anchor  = { enabled = false, shots = 0, target = nil },
 	killaura = { enabled = false, shots = 0, target = nil },
 	mace = { enabled = false, lastJump = 0 },
-	airstack = { enabled = false, stack = 0 },
+	airstack = { enabled = false, stack = 0, freezeY = nil },
 	speed = { enabled = false, origWalk = nil, origJump = nil },
 	warn = nil,       -- текст предупреждения (например, низкое HP)
 	warnAt = 0,
@@ -279,3 +272,14 @@ end
 local function sourceValid(src)
 	if not src or not src.inst then return false end
 	local ok, res = pcall(function() return src.inst.Parent ~= nil end)
+	return ok and res
+end
+
+local function pickSource(phase)
+	local list = SOURCES[phase]
+	if not list or #list == 0 then return nil end
+	local start = SOURCE_INDEX[phase] or 1
+	for i = 0, #list - 1 do
+		local idx = ((start - 1 + i) % #list) + 1
+		if sourceValid(list[idx]) then
+			SOURCE_INDEX[phase] = idx

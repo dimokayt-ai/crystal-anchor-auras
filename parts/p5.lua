@@ -1,18 +1,3 @@
-
-	if s.aggroOnly and dist > (s.aggroRadius or 25) then return false end
-	if s.requireLoS and not hasLoS(ownRoot.Position, e) then return false end
-
-	return true, dist
-end
-
-local function selectTarget(s, ownRoot)
-	local cands = {}
-	for _, e in ipairs(TARGETS) do
-		local ok, dist = isValidTarget(e, s, ownRoot)
-		if ok then
-			e._dist = dist
-			cands[#cands + 1] = e
-		end
 	end
 	if #cands == 0 then return nil end
 
@@ -279,3 +264,22 @@ function findPlacedCrystal(pos)
 		for _, d in ipairs(parts) do
 			local obj = d
 			if d.Parent and containsAny(lowerRU(d.Parent.Name), P.Crystal) then obj = d.Parent end
+			if containsAny(lowerRU(obj.Name), P.Crystal) then
+				local cp = obj:IsA("BasePart") and obj.Position
+					or (obj.PrimaryPart and obj.PrimaryPart.Position) or d.Position
+				local dist = (cp - pos).Magnitude
+				if dist < bestD then best, bestD = obj, dist end
+			end
+		end
+	end)
+	CRYSTAL_FIND_CACHE = { at = now, part = best }
+	return best
+end
+
+-- Удар/подрыв после постановки кристалла
+local function hitPlaced(s, t, pos)
+	local target = pos
+	local part = (s.hitAim or s.twoPhaseMode == "findAndSwing") and findPlacedCrystal(pos) or nil
+	if part then
+		target = part:IsA("BasePart") and part.Position
+			or (part.PrimaryPart and part.PrimaryPart.Position) or pos

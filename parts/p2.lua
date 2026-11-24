@@ -1,6 +1,3 @@
-
-CONFIG.Speed = {
-	enabled = false,
 	walkSpeed = 75,      -- обычная скорость
 	jumpPower = 60,      -- если игра позволяет менять прыжок
 }
@@ -279,3 +276,10 @@ losParams.FilterType = Enum.RaycastFilterType.Exclude
 local function hasLoS(fromPos, targetEntry)
 	local char = player.Character
 	losParams.FilterDescendantsInstances = { char }
+	local toPos = targetEntry.root.Position
+	local hit = workspace:Raycast(fromPos, toPos - fromPos, losParams)
+	if not hit then return true end
+	local h = hit.Instance
+	local m = targetEntry.model
+	if h == targetEntry.root then return true end
+	if m:IsA("BasePart") then return h == m end

@@ -273,7 +273,8 @@ CONFIG.MaceHelper = {
 
 CONFIG.AirStack = {
 	enabled = false,
-	mode = "Jump",       -- Jump = стакать прыжки в воздухе | Block = ставить блоки под ноги
+	mode = "Freeze",     -- Freeze = зависнуть в воздухе, сохраняя скорость падения | Jump | Block
+	freezeDrop = 0,      -- 0 = держим высоту; >0 = медленно снижаться
 	jumpPower = 55,
 	jumpDelay = 0.06,
 	stackBoost = 3,      -- сколько раз подпрыгивать подряд
@@ -579,7 +580,7 @@ local STATE = {
 	anchor  = { enabled = false, shots = 0, target = nil },
 	killaura = { enabled = false, shots = 0, target = nil },
 	mace = { enabled = false, lastJump = 0 },
-	airstack = { enabled = false, stack = 0 },
+	airstack = { enabled = false, stack = 0, freezeY = nil },
 	speed = { enabled = false, origWalk = nil, origJump = nil },
 	warn = nil,       -- текст предупреждения (например, низкое HP)
 	warnAt = 0,
@@ -1591,7 +1592,7 @@ local function buildHUD()
 	sg.Parent = pg
 
 	local frame = Instance.new("Frame")
-	frame.Size = UDim2.fromOffset(344, 300)
+	frame.Size = UDim2.fromOffset(344, 380)
 	frame.Position = UDim2.fromOffset(14, 14)
 	frame.BackgroundColor3 = Color3.fromRGB(22, 23, 30)
 	frame.BackgroundTransparency = 0.08
@@ -1697,15 +1698,17 @@ local function buildHUD()
 
 	pill(76, "crystal", "dotC")
 	pill(116, "anchor", "dotA")
+	pill(156, "killaura", "dotK")
+	pill(196, "mace", "dotM")
 
-	mkText(160, 13, Color3.fromRGB(170, 174, 190), false, "preset", 18)
-	mkText(182, 12, Color3.fromRGB(150, 154, 168), false, "srcC", 18)
-	mkText(200, 12, Color3.fromRGB(150, 154, 168), false, "srcA", 18)
-	mkText(222, 13, Color3.fromRGB(235, 236, 242), true, "target", 18)
+	mkText(236, 13, Color3.fromRGB(170, 174, 190), false, "preset", 18)
+	mkText(256, 12, Color3.fromRGB(150, 154, 168), false, "srcC", 18)
+	mkText(274, 12, Color3.fromRGB(150, 154, 168), false, "srcA", 18)
+	mkText(294, 13, Color3.fromRGB(235, 236, 242), true, "target", 18)
 
 	local hpTrack = Instance.new("Frame", frame)
 	hpTrack.Size = UDim2.new(1, -36, 0, 5)
-	hpTrack.Position = UDim2.fromOffset(18, 244)
+	hpTrack.Position = UDim2.fromOffset(18, 316)
 	hpTrack.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 	hpTrack.BackgroundTransparency = 0.92
 	hpTrack.BorderSizePixel = 0
@@ -1717,8 +1720,8 @@ local function buildHUD()
 	Instance.new("UICorner", hpFill).CornerRadius = UDim.new(0, 3)
 	HUD.hpFill = hpFill
 
-	mkText(254, 11, Color3.fromRGB(140, 145, 160), false, "info", 18)
-	mkText(274, 11, Color3.fromRGB(255, 105, 110), false, "warn", 18)
+	mkText(326, 11, Color3.fromRGB(140, 145, 160), false, "info", 18)
+	mkText(348, 11, Color3.fromRGB(255, 105, 110), false, "warn", 18)
 
 	HUD.gui = sg
 end
@@ -1738,6 +1741,21 @@ local function updateHUD()
 	HUD.anchor.TextColor3 = STATE.anchor.enabled
 		and Color3.fromRGB(236, 237, 242) or Color3.fromRGB(160, 162, 172)
 	HUD.dotA.BackgroundColor3 = STATE.anchor.enabled
+		and Color3.fromRGB(86, 214, 148) or Color3.fromRGB(120, 124, 138)
+
+	HUD.killaura.Text = ("[N] Kill Aura    %s   · %d ударов"):format(
+		STATE.killaura.enabled and "ВКЛ" or "выкл", STATE.killaura.shots)
+	HUD.killaura.TextColor3 = STATE.killaura.enabled
+		and Color3.fromRGB(236, 237, 242) or Color3.fromRGB(160, 162, 172)
+	HUD.dotK.BackgroundColor3 = STATE.killaura.enabled
+		and Color3.fromRGB(86, 214, 148) or Color3.fromRGB(120, 124, 138)
+
+	HUD.mace.Text = ("[M] Mace Helper  %s   · %s"):format(
+		STATE.mace.enabled and "ВКЛ" or "выкл",
+		STATE.mace.enabled and "свап+удар" or "выкл")
+	HUD.mace.TextColor3 = STATE.mace.enabled
+		and Color3.fromRGB(236, 237, 242) or Color3.fromRGB(160, 162, 172)
+	HUD.dotM.BackgroundColor3 = STATE.mace.enabled
 		and Color3.fromRGB(86, 214, 148) or Color3.fromRGB(120, 124, 138)
 
 	HUD.preset.Text = ("Пресет  %s   · H"):format(CONFIG.Presets[PRESET_IDX].name)
@@ -1842,6 +1860,7 @@ GENV.AURA_CONNS[#GENV.AURA_CONNS + 1] = UserInputService.InputBegan:Connect(func
 	elseif kc == K.ToggleAirStack then
 		STATE.airstack.enabled = not STATE.airstack.enabled
 		STATE.airstack.stack = 0
+		STATE.airstack.freezeY = nil
 		print(("[Auras] AirStack (%s): %s"):format(CONFIG.AirStack.mode, STATE.airstack.enabled and "ВКЛ" or "выкл"))
 	elseif kc == K.ToggleSpeed then
 		STATE.speed.enabled = not STATE.speed.enabled
@@ -2126,7 +2145,16 @@ task.spawn(function()
 		local hum, root = char and char:FindFirstChildOfClass("Humanoid"), getOwnRoot()
 		if hum and root then
 			local cfg = CONFIG.AirStack
-			if cfg.mode == "Block" then
+			if cfg.mode == "Freeze" then
+				-- Заморозка высоты, но ВСЯ скорость падения остаётся (нужно для мейса).
+				if STATE.airstack.freezeY == nil then STATE.airstack.freezeY = root.Position.Y end
+				local y = STATE.airstack.freezeY - (cfg.freezeDrop or 0)
+				pcall(function()
+					root.CFrame = CFrame.new(root.Position.X, y, root.Position.Z)
+						* (root.CFrame - root.CFrame.Position)
+					-- AssemblyLinearVelocity НЕ трогаем — падение "сохраняется"
+				end)
+			elseif cfg.mode == "Block" then
 				local bsrc = pickSource("block")
 				if bsrc then
 					activateSource(bsrc, "block", { model = char, root = root }, root.Position - Vector3.new(0, cfg.blockOffset or 3, 0), CONFIG.Crystal)
