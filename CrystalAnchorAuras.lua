@@ -114,11 +114,12 @@ local CONFIG = {
 
 	Scan = {
 		Interval      = 0.5,   -- как часто обновлять список целей (сек)
-		FullInterval  = 2.0,   -- полный обход workspace (сек)
+		FullInterval  = 3.0,   -- полный обход workspace (сек) — реже = меньше лагов
 		SourceRescan  = 5.0,   -- перескан источников: tools/remotes (сек)
 		CloneTemplates    = false, -- АВТО-ВЫДАЧА ВЫКЛ: предметы сами не выдаются
 		CloneAttack       = false, -- НЕ клонировать мечи/топоры/оружия (иначе спам в инвентарь!)
 		CloneFromWorkspace = false, -- искать шаблоны Tool в workspace (дубли!)
+		WorkspaceServices = false, -- дорогой обход workspace: включай, если ремоуты лежат прямо в workspace
 		DumpAll           = true,  -- вывести ВСЕ инструменты/ремоуты игры в консоль (диагностика)
 		RequireModules    = false, -- НЕ require чужие ModuleScript'ы (могут ломать игру/текстуры)
 	},
@@ -205,7 +206,9 @@ CONFIG.Crystal = {
 	twoPhase = true,           -- поставить кристалл -> ударить/взорвать
 	twoPhaseMode = "swing",    -- swing | findAndSwing | none
 	twoPhaseDelay = 0,         -- пауза между постановкой и ударом (0 = сразу)
-	aimCamera = false,         -- без аима, как раньше
+	hitAim = true,             -- аим ТОЛЬКО на взрыв (на поставленный кристалл), не на установку
+	noAttackTool = true,       -- НЕ доставать меч для взрыва: бьём ремоутом/самим кристаллом
+	aimCamera = false,         -- без аима при установке (как просил)
 	smoothAim = 0.35,
 	toolClickMode = "Both",  -- Activate | VirtualClick | Both (Both = клик по позиции цели)
 	placeClick = "Right",      -- ПКМ = ставить (ЛКМ в этой игре ломает!)
@@ -241,24 +244,29 @@ CONFIG.Anchor = {
 
 CONFIG.KillAura = {
 	enabled = false,
-	range = 20,
+	range = 24,
 	delay = 0,              -- максимально быстро
 	jitter = 0,
 	priority = "Nearest",
 	filter = "All",
 	requireLoS = false,
-	aimCamera = true,
-	smoothAim = 0.25,       -- 0..1, чем больше — тем резче; 0.25 = плавно и стабильно
+	aimCamera = false,      -- камеру НЕ трогаем (не крутится)
+	bodyAim = true,         -- плавно поворачиваем персонажа к цели
+	bodyAimSpeed = 14,      -- чем больше, тем резче (плавно = 8..14)
+	smoothAim = 0.25,
 	toolClickMode = "Activate", -- без лишних кликов мышью = быстрее и без дёрганий
 	equipDelay = 0,
+	autoMace = true,        -- если мейс включён — килаура сама свапает мейс и бьёт
 }
 
 CONFIG.MaceHelper = {
 	enabled = false,
-	range = 20,
+	range = 24,
 	jumpPower = 60,
-	fallAttackDelay = 0.15, -- когда начинать бить после прыжка (на падении)
-	onlyMace = false,       -- true = бить только если в руках/инвентаре есть Mace
+	fallAttackDelay = 0.08, -- когда начинать бить после прыжка (на падении)
+	onlyMace = false,       -- true = бить только если мейс найден
+	swapBackDelay = 0.04,   -- пауза перед возвратом прежнего предмета в руки
+	bodyAimSpeed = 14,
 }
 
 -- =================================================================
@@ -418,6 +426,18 @@ local function ensureEquipped(tool)
 	return true, true
 end
 
+-- Плавный поворот САМОГО ПЕРСОНАЖА (камера не трогается — не крутится)
+local function bodyAim(pos, speed)
+	local root = getOwnRoot()
+	if not root or not pos then return false end
+	local horizontal = Vector3.new(pos.X, root.Position.Y, pos.Z)
+	if (horizontal - root.Position).Magnitude < 0.6 then return false end
+	local goal = CFrame.lookAt(root.Position, horizontal)
+	local k = 1 - math.exp(-(speed or 14) / 60) -- плавно и независимо от FPS
+	local ok = pcall(function() root.CFrame = root.CFrame:Lerp(goal, math.clamp(k, 0.02, 1)) end)
+	return ok
+end
+
 -- Опциональный поворот камеры к точке (smooth = 0..1, 1 = мгновенно)
 local function aimCamera(pos, smooth)
 	local cam = workspace.CurrentCamera
@@ -535,7 +555,7 @@ local function hasLoS(fromPos, targetEntry)
 end
 
 -- =================================================================
--- 5. СОСТОЯНИЕ
+-- 5. СОСТОЯНИЕ + ЧЕСТНОЕ ОБУЧЕНИЕ
 -- =================================================================
 local STATE = {
 	crystal = { enabled = false, shots = 0, target = nil },
@@ -577,6 +597,55 @@ local SOURCE_INDEX  = { crystal = 1, anchor = 1, charge = 1, block = 1, attack =
 local ARG_INDEX     = { crystal = 1, anchor = 1, charge = 1, block = 1 }
 local FN_INDEX      = { crystal = 1, anchor = 1, charge = 1, block = 1 }
 
+-- Честная статистика: успех = реальный эффект (HP упал / объект появился), а не просто pcall.
+local ARG_STATS = GENV.AURA_ARG_STATS or {}
+local SRC_STATS = GENV.AURA_SRC_STATS or {}
+GENV.AURA_ARG_STATS, GENV.AURA_SRC_STATS = ARG_STATS, SRC_STATS
+
+local function statKey(srcName, phase)
+	return tostring(srcName or "?") .. "|" .. tostring(phase or "?")
+end
+
+local function statRate(st)
+	if not st or st.n < 1 then return nil end
+	return (st.s + 1) / (st.n + 2) -- сглаженная доля успеха (Байес)
+end
+
+local function recordStat(tableRef, key, success)
+	local st = tableRef[key]
+	if not st then st = { n = 0, s = 0 }; tableRef[key] = st end
+	st.n = st.n + 1
+	if success then st.s = st.s + 1 end
+	if st.n > 24 then -- забываем старое, учимся под новую ситуацию
+		st.n = st.n * 0.85
+		st.s = st.s * 0.85
+	end
+end
+
+local findPlacedCrystal -- forward, определена ниже
+
+-- Проверка эффекта через 0.12 сек: HP цели / появление кристалла.
+local function scheduleEffectCheck(key, idx, t, pos, phase, srcName, entry)
+	local before = t and tonumber(t.health) or nil
+	local model = t and t.model or nil
+	task.delay(0.12, function()
+		if not alive() then return end
+		local success = false
+		if before and model and model.Parent then
+			local hum = model:FindFirstChildOfClass("Humanoid")
+			local nowHp = hum and hum.Health
+				or tonumber(model:GetAttribute("Health")) or tonumber(model:GetAttribute("HP"))
+			if type(nowHp) == "number" and nowHp < before - 0.5 then success = true end
+		end
+		if not success and (phase == "crystal" or phase == "block") and pos and findPlacedCrystal(pos) then
+			success = true
+		end
+		if key and idx then recordStat(ARG_STATS, key .. "#" .. idx, success) end
+		recordStat(SRC_STATS, statKey(srcName, phase), success)
+		if entry then entry.effect = success and "hit" or "none" end
+	end)
+end
+
 local SOURCES = { crystal = {}, anchor = {}, charge = {}, attack = {} }
 local TARGETS = {}
 
@@ -597,7 +666,7 @@ local function classify(name)
 	return nil
 end
 
-local function scoreSource(name, srcType, exact)
+local function scoreSource(name, srcType, exact, phase)
 	local sc = 0
 	if exact then sc = sc + 100 end
 	if srcType == "tool" then sc = sc + 25
@@ -605,6 +674,9 @@ local function scoreSource(name, srcType, exact)
 	elseif srcType == "remoteFunction" then sc = sc + 15
 	elseif srcType == "prompt" then sc = sc + 10
 	elseif srcType == "module" then sc = sc + 5 end
+	-- бонус за реально подтверждённый эффект в прошлом
+	local rate = statRate(SRC_STATS[statKey(name, phase)])
+	if rate then sc = sc + rate * 35 end
 	return sc
 end
 
@@ -635,7 +707,7 @@ local function rescanSources()
 		local k = tostring(src.inst) .. "|" .. phase
 		if seen[k] then return end
 		seen[k] = true
-		src.score = scoreSource(src.name, src.type, src.exact)
+		src.score = scoreSource(src.name, src.type, src.exact, phase)
 		table.insert(lists[phase], src)
 	end
 
@@ -723,7 +795,12 @@ local function rescanSources()
 		end
 	end
 	scanServices(ReplicatedStorage)
-	scanServices(workspace)
+	-- workspace скан дорогой: только изредка и только если реально включено
+	local lastWs = GENV.AURA_LAST_WS_SCAN or 0
+	if CONFIG.Scan.WorkspaceServices and os.clock() - lastWs > 15 then
+		GENV.AURA_LAST_WS_SCAN = os.clock()
+		scanServices(workspace)
+	end
 
 	for phase, list in pairs(lists) do
 		table.sort(list, function(a, b) return a.score > b.score end)
@@ -916,6 +993,10 @@ local function rescanTargets(full)
 	pcall(function()
 		for _, d in workspace:GetChildren() do
 			consider(d, out, seen)
+		end
+		-- игроки сканируются быстро, без полного GetDescendants
+		for _, pl in Players:GetPlayers() do
+			if pl ~= player and pl.Character then consider(pl.Character, out, seen) end
 		end
 		if full then
 			for _, d in workspace:GetDescendants() do
@@ -1163,21 +1244,28 @@ local function buildArgVariants(phase, t, pos, src)
 	return variants
 end
 
--- Память успешных вариантов аргументов (переживает перезапуск скрипта)
-local SRC_ARG_OK = GENV.AURA_ARG_OK or {}
-GENV.AURA_ARG_OK = SRC_ARG_OK
-local SRC_ARG_FAIL = {} -- неудачи в этой сессии, чтобы не долбить одно и то же
+-- Память аргументов теперь в ARG_STATS (честная статистика по эффекту), см. секцию 5.
 
 local function nextArgs(phase, t, pos, s, src)
 	local vars = buildArgVariants(phase, t, pos, src)
-	local key = ((src and src.name) or "?") .. "|" .. phase
-	local idx = s.argIndex
-	if not idx then
-		-- если уже знаем удачный вариант — пробуем его первым
-		idx = SRC_ARG_OK[key]
-		if not idx then
+	local key = statKey((src and src.name) or "?", phase)
+	local idx
+
+	if s.argIndex then
+		idx = s.argIndex -- жёстко закреплён в конфиге
+	else
+		-- 1 из 6 пробуем новое (исследование), остальное — лучший по реальному эффекту
+		local explore = math.random(6) == 1
+		local best, bestRate = nil, -1
+		for i = 1, #vars do
+			local r = statRate(ARG_STATS[key .. "#" .. i])
+			if r and r > bestRate then best, bestRate = i, r end
+		end
+		if explore or not best then
 			idx = ARG_INDEX[phase] or 1
 			ARG_INDEX[phase] = (idx % #vars) + 1
+		else
+			idx = best
 		end
 	end
 	idx = ((idx - 1) % #vars) + 1
@@ -1230,16 +1318,13 @@ local function activateSource(src, phase, t, pos, s)
 		local ok = pcall(function()
 			src.inst:FireServer(table.unpack(args))
 		end)
-		-- для placement не помечаем "успех" по факту pcall — ждём подтверждения
-		local placePhase = (phase == "crystal" or phase == "block" or phase == "anchor" or phase == "charge")
-		if ok and not placePhase then SRC_ARG_OK[key] = idx end
+		if ok then scheduleEffectCheck(key, idx, t, pos, phase, src.name) end
 		return ok, idx, key
 
 	elseif src.type == "remoteFunction" then
 		local args, idx, key = nextArgs(phase, t, pos, s, src)
 		local ok = invokeRF(src.inst, args, s.rfTimeout or 2)
-		local placePhase = (phase == "crystal" or phase == "block" or phase == "anchor" or phase == "charge")
-		if ok and not placePhase then SRC_ARG_OK[key] = idx end
+		if ok then scheduleEffectCheck(key, idx, t, pos, phase, src.name) end
 		return ok, idx, key
 
 	elseif src.type == "prompt" then
@@ -1274,7 +1359,7 @@ end
 
 -- Поиск только что поставленного кристалла (для добивания)
 local CRYSTAL_FIND_CACHE = { at = 0, part = nil }
-local function findPlacedCrystal(pos)
+function findPlacedCrystal(pos)
 	local now = os.clock()
 	if now - CRYSTAL_FIND_CACHE.at < 0.35 then
 		return CRYSTAL_FIND_CACHE.part
@@ -1306,15 +1391,16 @@ end
 -- Удар/подрыв после постановки кристалла
 local function hitPlaced(s, t, pos)
 	local target = pos
-	if s.twoPhaseMode == "findAndSwing" then
-		local part = findPlacedCrystal(pos)
-		if part then
-			target = part:IsA("BasePart") and part.Position
-				or (part.PrimaryPart and part.PrimaryPart.Position) or pos
-		end
+	local part = (s.hitAim or s.twoPhaseMode == "findAndSwing") and findPlacedCrystal(pos) or nil
+	if part then
+		target = part:IsA("BasePart") and part.Position
+			or (part.PrimaryPart and part.PrimaryPart.Position) or pos
 	end
+	-- аим только на взрыв, быстро и точно
+	if s.hitAim and target ~= pos then aimCamera(target, 1) end
 	local atk = pickSource("attack")
-	if atk then
+	-- кристалл: меч НЕ экипируем — только Attack-ремоут (или сам кристалл)
+	if atk and not s.noAttackTool then
 		if atk.type == "tool" then
 			local ok = ensureEquipped(atk.inst)
 			if ok then
@@ -1329,6 +1415,11 @@ local function hitPlaced(s, t, pos)
 			activateSource(atk, "attack", t, target, s)
 			return true
 		end
+	end
+	-- даже без меча шлём Attack-ремоут (быстрый взрыв)
+	if s.noAttackTool and atk and (atk.type == "remoteEvent" or atk.type == "remoteFunction") then
+		activateSource(atk, "attack", t, target, s)
+		return true
 	end
 	-- фолбэк: бьём тем же кристаллом
 	if s.toolClickMode ~= "none" then
@@ -1363,7 +1454,9 @@ local function fireCrystal(s, t, pos)
 			local bsrc = pickSource("block")
 			if bsrc then
 				local bok, bidx, bkey = activateSource(bsrc, "block", t, pos, s)
-				if bok and bkey and bidx then SRC_ARG_OK[bkey] = bidx end
+				if bok and bidx and bkey then
+					scheduleEffectCheck(bkey, bidx, t, pos, "block", bsrc.name)
+				end
 				STATE.crystal.blockPos = pos
 				STATE.crystal.blockAt = os.clock()
 				local bd = s.blockDelay
@@ -1384,15 +1477,9 @@ local function fireCrystal(s, t, pos)
 		end
 	end
 	STATE.crystal.shots = STATE.crystal.shots + 1
-	logAction({ kind = "crystal", ok = ok, src = src.name, pos = { pos.X, pos.Y, pos.Z }, target = t.name })
-
-	-- подтверждение: если кристалл реально появился — запоминаем вариант аргумента
-	if ok and key and idx then
-		task.defer(function()
-			local part = findPlacedCrystal(pos)
-			if part then SRC_ARG_OK[key] = idx end
-		end)
-	end
+	local entry = { kind = "crystal", ok = ok, src = src.name, pos = { pos.X, pos.Y, pos.Z }, target = t.name }
+	logAction(entry)
+	if ok then scheduleEffectCheck(key, idx, t, pos, "crystal", src.name, entry) end
 
 	if ok and s.twoPhase and s.twoPhaseMode ~= "none" then
 		local td = s.twoPhaseDelay
@@ -1477,18 +1564,25 @@ local function buildHUD()
 	sg.Parent = pg
 
 	local frame = Instance.new("Frame")
-	frame.Size = UDim2.fromOffset(300, 210)
-	frame.Position = UDim2.fromOffset(12, 12)
-	frame.BackgroundColor3 = Color3.fromRGB(18, 18, 26)
-	frame.BackgroundTransparency = 0.25
+	frame.Size = UDim2.fromOffset(344, 300)
+	frame.Position = UDim2.fromOffset(14, 14)
+	frame.BackgroundColor3 = Color3.fromRGB(22, 23, 30)
+	frame.BackgroundTransparency = 0.08
 	frame.BorderSizePixel = 0
 	frame.Parent = sg
-	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 20)
 	local stroke = Instance.new("UIStroke", frame)
-	stroke.Color = Color3.fromRGB(130, 100, 255)
-	stroke.Transparency = 0.4
+	stroke.Color = Color3.fromRGB(255, 255, 255)
+	stroke.Transparency = 0.87
+	stroke.Thickness = 1
+	local grad = Instance.new("UIGradient", frame)
+	grad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(32, 34, 44)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(16, 17, 23)),
+	})
+	grad.Rotation = 90
 
-	-- HUD можно перетаскивать за любую точку (мышь/палец)
+	-- перетаскивание за любую точку
 	do
 		local dragging, dragStart, startPos
 		frame.InputBegan:Connect(function(input)
@@ -1501,9 +1595,7 @@ local function buildHUD()
 		end)
 		frame.InputEnded:Connect(function(input)
 			local t = input.UserInputType
-			if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
-				dragging = false
-			end
+			if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then dragging = false end
 		end)
 		UserInputService.InputChanged:Connect(function(input)
 			if not dragging then return end
@@ -1518,57 +1610,110 @@ local function buildHUD()
 		end)
 	end
 
-	local title = Instance.new("TextLabel")
-	title.Size = UDim2.new(1, -16, 0, 24)
-	title.Position = UDim2.fromOffset(8, 6)
-	title.BackgroundTransparency = 1
-	title.Font = Enum.Font.GothamBold
-	title.TextSize = 15
-	title.TextColor3 = Color3.fromRGB(195, 165, 255)
-	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Text = "CRYSTAL / ANCHOR AURAS"
-	title.Parent = frame
-
-	local function line(y, key)
-		local l = Instance.new("TextLabel")
-		l.Size = UDim2.new(1, -16, 0, 18)
-		l.Position = UDim2.fromOffset(8, y)
+	local function mkText(y, size, color, bold, key, x)
+		local l = Instance.new("TextLabel", frame)
+		l.Size = UDim2.new(1, -36, 0, size + 8)
+		l.Position = UDim2.fromOffset(x or 18, y)
 		l.BackgroundTransparency = 1
-		l.Font = Enum.Font.Gotham
-		l.TextSize = 13
+		l.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
+		l.TextSize = size
+		l.TextColor3 = color
 		l.TextXAlignment = Enum.TextXAlignment.Left
-		l.TextColor3 = Color3.fromRGB(225, 225, 235)
 		l.Text = ""
-		l.Parent = frame
-		HUD[key] = l
+		if key then HUD[key] = l end
 		return l
 	end
 
-	line(36, "crystal")
-	line(56, "anchor")
-	line(80, "preset")
-	line(100, "srcC")
-	line(120, "srcA")
-	line(144, "target")
-	line(164, "info")
-	line(184, "warn")
+	local dot = Instance.new("Frame", frame)
+	dot.Size = UDim2.fromOffset(9, 9)
+	dot.Position = UDim2.fromOffset(18, 21)
+	dot.BackgroundColor3 = Color3.fromRGB(120, 132, 255)
+	dot.BorderSizePixel = 0
+	Instance.new("UICorner", dot).CornerRadius = UDim.new(0, 5)
+
+	mkText(14, 21, Color3.fromRGB(242, 243, 248), true, nil, 36).Text = "Aura Suite"
+	mkText(40, 12, Color3.fromRGB(150, 154, 168), false, nil, 36).Text = "Crystal · Anchor · Combat"
+
+	local sep = Instance.new("Frame", frame)
+	sep.Size = UDim2.new(1, -36, 0, 1)
+	sep.Position = UDim2.fromOffset(18, 64)
+	sep.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	sep.BackgroundTransparency = 0.9
+	sep.BorderSizePixel = 0
+
+	local function pill(y, key, dotKey)
+		local p = Instance.new("Frame", frame)
+		p.Size = UDim2.new(1, -36, 0, 32)
+		p.Position = UDim2.fromOffset(18, y)
+		p.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		p.BackgroundTransparency = 0.94
+		p.BorderSizePixel = 0
+		Instance.new("UICorner", p).CornerRadius = UDim.new(0, 10)
+		local d = Instance.new("Frame", p)
+		d.Size = UDim2.fromOffset(8, 8)
+		d.Position = UDim2.fromOffset(12, 12)
+		d.BackgroundColor3 = Color3.fromRGB(120, 124, 138)
+		d.BorderSizePixel = 0
+		Instance.new("UICorner", d).CornerRadius = UDim.new(0, 4)
+		HUD[dotKey] = d
+		local l = Instance.new("TextLabel", p)
+		l.Size = UDim2.new(1, -40, 1, 0)
+		l.Position = UDim2.fromOffset(28, 0)
+		l.BackgroundTransparency = 1
+		l.Font = Enum.Font.Gotham
+		l.TextSize = 14
+		l.TextColor3 = Color3.fromRGB(238, 239, 245)
+		l.TextXAlignment = Enum.TextXAlignment.Left
+		l.Text = ""
+		HUD[key] = l
+	end
+
+	pill(76, "crystal", "dotC")
+	pill(116, "anchor", "dotA")
+
+	mkText(160, 13, Color3.fromRGB(170, 174, 190), false, "preset", 18)
+	mkText(182, 12, Color3.fromRGB(150, 154, 168), false, "srcC", 18)
+	mkText(200, 12, Color3.fromRGB(150, 154, 168), false, "srcA", 18)
+	mkText(222, 13, Color3.fromRGB(235, 236, 242), true, "target", 18)
+
+	local hpTrack = Instance.new("Frame", frame)
+	hpTrack.Size = UDim2.new(1, -36, 0, 5)
+	hpTrack.Position = UDim2.fromOffset(18, 244)
+	hpTrack.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	hpTrack.BackgroundTransparency = 0.92
+	hpTrack.BorderSizePixel = 0
+	Instance.new("UICorner", hpTrack).CornerRadius = UDim.new(0, 3)
+	local hpFill = Instance.new("Frame", hpTrack)
+	hpFill.Size = UDim2.new(0, 0, 1, 0)
+	hpFill.BackgroundColor3 = Color3.fromRGB(86, 214, 148)
+	hpFill.BorderSizePixel = 0
+	Instance.new("UICorner", hpFill).CornerRadius = UDim.new(0, 3)
+	HUD.hpFill = hpFill
+
+	mkText(254, 11, Color3.fromRGB(140, 145, 160), false, "info", 18)
+	mkText(274, 11, Color3.fromRGB(255, 105, 110), false, "warn", 18)
+
 	HUD.gui = sg
 end
 
 local function updateHUD()
 	if not HUD.gui or not HUD.gui.Parent then return end
 
-	HUD.crystal.Text = ("[Z] Кристалл: %s   попыток: %d"):format(
+	HUD.crystal.Text = ("[Z] Кристалл   %s   · %d"):format(
 		STATE.crystal.enabled and "ВКЛ" or "выкл", STATE.crystal.shots)
 	HUD.crystal.TextColor3 = STATE.crystal.enabled
-		and Color3.fromRGB(120, 255, 160) or Color3.fromRGB(140, 140, 150)
+		and Color3.fromRGB(236, 237, 242) or Color3.fromRGB(160, 162, 172)
+	HUD.dotC.BackgroundColor3 = STATE.crystal.enabled
+		and Color3.fromRGB(86, 214, 148) or Color3.fromRGB(120, 124, 138)
 
-	HUD.anchor.Text = ("[G] Анчор:    %s   попыток: %d"):format(
+	HUD.anchor.Text = ("[G] Анчор      %s   · %d"):format(
 		STATE.anchor.enabled and "ВКЛ" or "выкл", STATE.anchor.shots)
 	HUD.anchor.TextColor3 = STATE.anchor.enabled
-		and Color3.fromRGB(120, 255, 160) or Color3.fromRGB(140, 140, 150)
+		and Color3.fromRGB(236, 237, 242) or Color3.fromRGB(160, 162, 172)
+	HUD.dotA.BackgroundColor3 = STATE.anchor.enabled
+		and Color3.fromRGB(86, 214, 148) or Color3.fromRGB(120, 124, 138)
 
-	HUD.preset.Text = ("Пресет: %s  (H)"):format(CONFIG.Presets[PRESET_IDX].name)
+	HUD.preset.Text = ("Пресет  %s   · H"):format(CONFIG.Presets[PRESET_IDX].name)
 
 	local cs = pickSource("crystal")
 	HUD.srcC.Text = ("Кристалл источник: %s  (K)"):format(
@@ -1582,23 +1727,31 @@ local function updateHUD()
 	HUD.srcA.TextColor3 = as and Color3.fromRGB(225, 225, 235)
 		or Color3.fromRGB(255, 120, 120)
 
-	local tgt = STATE.crystal.target or STATE.anchor.target
+	local tgt = STATE.crystal.target or STATE.anchor.target or STATE.killaura.targetObj
 	if tgt and tgt.root and tgt.root.Parent then
 		local own = getOwnRoot()
 		local d = own and math.floor((tgt.root.Position - own.Position).Magnitude) or 0
-		local hp = tgt.health and math.floor(tgt.health) or "?"
-		local mx = tgt.maxHealth and math.floor(tgt.maxHealth) or "?"
-		HUD.target.Text = ("Цель: %s  [%d м]  HP %s/%s%s"):format(
-			tgt.name, d, hp, mx,
-			(tgt.isBoss and "  [БОСС]") or (tgt.isElite and "  [ЭЛИТА]") or "")
+		local hp = tgt.health and math.floor(tgt.health) or 0
+		local mx = tgt.maxHealth and math.floor(tgt.maxHealth) or 0
+		HUD.target.Text = ("%s  · %dм  · %s/%s%s"):format(
+			tgt.name, d, tostring(hp), tostring(mx),
+			(tgt.isBoss and "  BOSS") or (tgt.isElite and "  ELITE") or "")
+		local ratio = (mx > 0) and math.clamp(hp / mx, 0, 1) or 0
+		HUD.hpFill.Size = UDim2.new(ratio, 0, 1, 0)
+		HUD.hpFill.BackgroundColor3 = ratio > 0.5
+			and Color3.fromRGB(86, 214, 148)
+			or (ratio > 0.25 and Color3.fromRGB(255, 190, 90) or Color3.fromRGB(255, 105, 110))
 	else
 		HUD.target.Text = "Цель: —"
+		HUD.hpFill.Size = UDim2.new(0, 0, 1, 0)
 	end
 
-	HUD.info.Text = ("C:%d A:%d бл:%d зар:%d уд:%d | целей:%d | N Kill:%s M Mace:%s | JHUD Lлог"):format(
+	local learned = 0
+	for _ in pairs(ARG_STATS) do learned = learned + 1 end
+	HUD.info.Text = ("источники %d/%d/%d/%d/%d · целей %d · N:%s M:%s · обучено %d"):format(
 		#SOURCES.crystal, #SOURCES.anchor, #SOURCES.block, #SOURCES.charge, #SOURCES.attack, #TARGETS,
-		STATE.killaura.enabled and "ВКЛ" or "выкл",
-		STATE.mace.enabled and "ВКЛ" or "выкл")
+		STATE.killaura.enabled and "on" or "off",
+		STATE.mace.enabled and "on" or "off", learned)
 
 	if STATE.warn and os.clock() - STATE.warnAt < 5 then
 		HUD.warn.Text = STATE.warn
@@ -1739,26 +1892,93 @@ local function pickAttackTool(preferMace)
 	return bestMace or best or pickSource("attack")
 end
 
-local function doSwingAt(pos, preferMace)
-	local src = pickAttackTool(preferMace)
-	if not src then return false end
-	if src.type == "tool" then
-		local ok = ensureEquipped(src.inst)
-		if not ok then return false end
-		if CONFIG.KillAura.aimCamera and pos then
-			aimCamera(pos, CONFIG.KillAura.smoothAim or 0.35)
+-- 🇷🇺 Найти мейс в инвентаре/руке
+local function findMaceTool()
+	local char = player.Character
+	local backpack = player:FindFirstChild("Backpack")
+	for _, container in ipairs({ char, backpack }) do
+		if container then
+			for _, obj in container:GetChildren() do
+				if obj:IsA("Tool") then
+					local n = lowerRU(obj.Name)
+					if n:find("mace", 1, true) or n:find("булав", 1, true) then return obj end
+				end
+			end
 		end
-		pcall(function() src.inst:Activate() end)
-		-- быстрый режим: без VirtualClick по экрану (он медленный и дёргает)
+	end
+	for _, src in ipairs(SOURCES.attack or {}) do
+		if src.type == "tool" and src.inst and src.inst.Parent then
+			local n = lowerRU(src.name or "")
+			if n:find("mace", 1, true) or n:find("булав", 1, true) then return src.inst end
+		end
+	end
+	return nil
+end
+
+-- Текущий предмет в руках (чтобы вернуть после удара мейсом)
+local function heldTool()
+	local char = player.Character
+	if not char then return nil end
+	for _, obj in char:GetChildren() do
+		if obj:IsA("Tool") then return obj end
+	end
+	return nil
+end
+
+local function restoreTool(tool)
+	if not tool or not tool.Parent then return end
+	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if hum then pcall(function() hum:EquipTool(tool) end) end
+end
+
+local function doSwingAt(pos, useMace)
+	if not pos then return false end
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not hum then return false end
+
+	-- плавно доворачиваемся к цели ВСЕГДА (тело, не камера)
+	if CONFIG.KillAura.bodyAim then bodyAim(pos, CONFIG.KillAura.bodyAimSpeed or 14) end
+
+	local previous = heldTool()
+	local mace = useMace and findMaceTool() or nil
+	local tool = mace or previous
+	local srcInfo = nil
+	if not tool then
+		srcInfo = pickSource("attack")
+		if srcInfo and srcInfo.type == "tool" then tool = srcInfo.inst; srcInfo = nil end
+	end
+
+	if tool and tool:IsA("Tool") then
+		if tool ~= previous then
+			pcall(function() hum:EquipTool(tool) end)
+			local ed = CONFIG.KillAura.equipDelay or 0
+			if ed > 0 then task.wait(ed) end
+		end
+		pcall(function() tool:Activate() end)
 		if CONFIG.KillAura.toolClickMode == "Both" or CONFIG.KillAura.toolClickMode == "VirtualClick" then
 			virtualClick(pos)
 		end
+		if mace then
+			-- мейс: удар на падении сильнее — бьём повторно и возвращаем старый предмет
+			pcall(function() tool:Activate() end)
+			local bd = CONFIG.MaceHelper.swapBackDelay or 0
+			if bd > 0 then task.wait(bd) end
+			restoreTool(previous)
+		end
 		return true
 	end
-	if src.type == "remoteEvent" then
-		return pcall(function() src.inst:FireServer(pos) end)
+
+	-- ремоут-атака (Attack/Swing из дампа)
+	srcInfo = srcInfo or pickSource("attack")
+	if srcInfo and (srcInfo.type == "remoteEvent" or srcInfo.type == "remoteFunction") then
+		return activateSource(srcInfo, "attack", { model = char, root = getOwnRoot() }, pos, CONFIG.KillAura)
 	end
-	return activateSource(src, "attack", { model = player.Character, root = getOwnRoot() }, pos, CONFIG.KillAura)
+	if srcInfo and srcInfo.type == "tool" then
+		local ok = ensureEquipped(srcInfo.inst)
+		if ok then pcall(function() srcInfo.inst:Activate() end); return true end
+	end
+	return false
 end
 
 task.spawn(function()
@@ -1790,7 +2010,7 @@ task.spawn(function()
 				STATE.killaura.target = t and t.name or nil
 				if t and t.root and t.root.Parent then
 					local pos = t.root.Position
-					local preferMace = STATE.mace.enabled
+					local preferMace = STATE.mace.enabled and CONFIG.KillAura.autoMace ~= false
 					if doSwingAt(pos, preferMace) then
 						STATE.killaura.shots = STATE.killaura.shots + 1
 					end
@@ -1861,10 +2081,15 @@ end)
 -- сканы: работают только пока включена хоть одна аура (иначе спим — оптимизация)
 task.spawn(function()
 	local tFull, tSrc = 0, 0
+	local lastAny = false
 	while true do
 		if not alive() then return end
 		local anyOn = STATE.crystal.enabled or STATE.anchor.enabled or STATE.killaura.enabled or STATE.mace.enabled
 		if anyOn then
+			if not lastAny then -- только что включили — сразу свежий скан
+				tFull, tSrc = 0, 0
+			end
+			lastAny = true
 			local now = os.clock()
 			local full = (now - tFull) >= CONFIG.Scan.FullInterval
 			if full then tFull = now end
@@ -1874,9 +2099,10 @@ task.spawn(function()
 				pcall(rescanSources)
 				pcall(sourceReport)
 			end
-			task.wait(CONFIG.Scan.Interval)
+			task.wait(full and CONFIG.Scan.Interval or math.max(CONFIG.Scan.Interval, 0.35))
 		else
-			task.wait(0.5) -- всё выключено: ничего не сканируем и не трогаем
+			lastAny = false
+			task.wait(1.0) -- всё выключено: спим и вообще ничего не трогаем
 		end
 	end
 end)

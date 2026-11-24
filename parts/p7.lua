@@ -1,134 +1,105 @@
-		else
-			-- нет оружия — ещё раз ПКМ по анчору (в некоторых играх это подрывает)
-			activateSource(src, "anchor", t, pos, s)
-		end
-	elseif seq == "charge_then_use" then
-		local csrc = pickSource("charge")
-		if csrc then
-			activateSource(csrc, "charge", t, pos, s)
-			task.wait(ct)
-		end
-		activateSource(src, "anchor", t, pos, s)
-	elseif seq == "use_twice" then
-		activateSource(src, "anchor", t, pos, s)
-		task.wait(ct)
-		activateSource(src, "anchor", t, pos, s)
-	else
-		activateSource(src, "anchor", t, pos, s)
-	end
-	STATE.anchor.shots = STATE.anchor.shots + 1
-	logAction({ kind = "anchor", seq = seq, src = src.name, charge = (pickSource("charge") or {}).name, pos = { pos.X, pos.Y, pos.Z }, target = t.name })
-	return true
-end
-
--- =================================================================
--- 10. HUD
--- =================================================================
-local HUD = {}
-
-local function buildHUD()
-	local pg = player:WaitForChild("PlayerGui", 10)
-	if not pg then return end
-
-	local sg = Instance.new("ScreenGui")
-	sg.Name = "AuraHUD"
-	sg.ResetOnSpawn = false
-	sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	sg.Parent = pg
-
-	local frame = Instance.new("Frame")
-	frame.Size = UDim2.fromOffset(300, 210)
-	frame.Position = UDim2.fromOffset(12, 12)
-	frame.BackgroundColor3 = Color3.fromRGB(18, 18, 26)
-	frame.BackgroundTransparency = 0.25
-	frame.BorderSizePixel = 0
-	frame.Parent = sg
-	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
-	local stroke = Instance.new("UIStroke", frame)
-	stroke.Color = Color3.fromRGB(130, 100, 255)
-	stroke.Transparency = 0.4
-
-	-- HUD можно перетаскивать за любую точку (мышь/палец)
-	do
-		local dragging, dragStart, startPos
-		frame.InputBegan:Connect(function(input)
-			local t = input.UserInputType
-			if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
-				dragging = true
-				dragStart = input.Position
-				startPos = frame.Position
-			end
-		end)
-		frame.InputEnded:Connect(function(input)
-			local t = input.UserInputType
-			if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
-				dragging = false
-			end
-		end)
-		UserInputService.InputChanged:Connect(function(input)
-			if not dragging then return end
-			if not frame.Parent then dragging = false return end
-			local t = input.UserInputType
-			if t == Enum.UserInputType.MouseMovement or t == Enum.UserInputType.Touch then
-				local delta = input.Position - dragStart
-				frame.Position = UDim2.new(
-					startPos.X.Scale, startPos.X.Offset + delta.X,
-					startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-			end
-		end)
-	end
-
-	local title = Instance.new("TextLabel")
-	title.Size = UDim2.new(1, -16, 0, 24)
-	title.Position = UDim2.fromOffset(8, 6)
-	title.BackgroundTransparency = 1
-	title.Font = Enum.Font.GothamBold
-	title.TextSize = 15
-	title.TextColor3 = Color3.fromRGB(195, 165, 255)
-	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Text = "CRYSTAL / ANCHOR AURAS"
-	title.Parent = frame
-
-	local function line(y, key)
-		local l = Instance.new("TextLabel")
-		l.Size = UDim2.new(1, -16, 0, 18)
-		l.Position = UDim2.fromOffset(8, y)
+		l.Size = UDim2.new(1, -36, 0, size + 8)
+		l.Position = UDim2.fromOffset(x or 18, y)
 		l.BackgroundTransparency = 1
-		l.Font = Enum.Font.Gotham
-		l.TextSize = 13
+		l.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
+		l.TextSize = size
+		l.TextColor3 = color
 		l.TextXAlignment = Enum.TextXAlignment.Left
-		l.TextColor3 = Color3.fromRGB(225, 225, 235)
 		l.Text = ""
-		l.Parent = frame
-		HUD[key] = l
+		if key then HUD[key] = l end
 		return l
 	end
 
-	line(36, "crystal")
-	line(56, "anchor")
-	line(80, "preset")
-	line(100, "srcC")
-	line(120, "srcA")
-	line(144, "target")
-	line(164, "info")
-	line(184, "warn")
+	local dot = Instance.new("Frame", frame)
+	dot.Size = UDim2.fromOffset(9, 9)
+	dot.Position = UDim2.fromOffset(18, 21)
+	dot.BackgroundColor3 = Color3.fromRGB(120, 132, 255)
+	dot.BorderSizePixel = 0
+	Instance.new("UICorner", dot).CornerRadius = UDim.new(0, 5)
+
+	mkText(14, 21, Color3.fromRGB(242, 243, 248), true, nil, 36).Text = "Aura Suite"
+	mkText(40, 12, Color3.fromRGB(150, 154, 168), false, nil, 36).Text = "Crystal · Anchor · Combat"
+
+	local sep = Instance.new("Frame", frame)
+	sep.Size = UDim2.new(1, -36, 0, 1)
+	sep.Position = UDim2.fromOffset(18, 64)
+	sep.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	sep.BackgroundTransparency = 0.9
+	sep.BorderSizePixel = 0
+
+	local function pill(y, key, dotKey)
+		local p = Instance.new("Frame", frame)
+		p.Size = UDim2.new(1, -36, 0, 32)
+		p.Position = UDim2.fromOffset(18, y)
+		p.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		p.BackgroundTransparency = 0.94
+		p.BorderSizePixel = 0
+		Instance.new("UICorner", p).CornerRadius = UDim.new(0, 10)
+		local d = Instance.new("Frame", p)
+		d.Size = UDim2.fromOffset(8, 8)
+		d.Position = UDim2.fromOffset(12, 12)
+		d.BackgroundColor3 = Color3.fromRGB(120, 124, 138)
+		d.BorderSizePixel = 0
+		Instance.new("UICorner", d).CornerRadius = UDim.new(0, 4)
+		HUD[dotKey] = d
+		local l = Instance.new("TextLabel", p)
+		l.Size = UDim2.new(1, -40, 1, 0)
+		l.Position = UDim2.fromOffset(28, 0)
+		l.BackgroundTransparency = 1
+		l.Font = Enum.Font.Gotham
+		l.TextSize = 14
+		l.TextColor3 = Color3.fromRGB(238, 239, 245)
+		l.TextXAlignment = Enum.TextXAlignment.Left
+		l.Text = ""
+		HUD[key] = l
+	end
+
+	pill(76, "crystal", "dotC")
+	pill(116, "anchor", "dotA")
+
+	mkText(160, 13, Color3.fromRGB(170, 174, 190), false, "preset", 18)
+	mkText(182, 12, Color3.fromRGB(150, 154, 168), false, "srcC", 18)
+	mkText(200, 12, Color3.fromRGB(150, 154, 168), false, "srcA", 18)
+	mkText(222, 13, Color3.fromRGB(235, 236, 242), true, "target", 18)
+
+	local hpTrack = Instance.new("Frame", frame)
+	hpTrack.Size = UDim2.new(1, -36, 0, 5)
+	hpTrack.Position = UDim2.fromOffset(18, 244)
+	hpTrack.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	hpTrack.BackgroundTransparency = 0.92
+	hpTrack.BorderSizePixel = 0
+	Instance.new("UICorner", hpTrack).CornerRadius = UDim.new(0, 3)
+	local hpFill = Instance.new("Frame", hpTrack)
+	hpFill.Size = UDim2.new(0, 0, 1, 0)
+	hpFill.BackgroundColor3 = Color3.fromRGB(86, 214, 148)
+	hpFill.BorderSizePixel = 0
+	Instance.new("UICorner", hpFill).CornerRadius = UDim.new(0, 3)
+	HUD.hpFill = hpFill
+
+	mkText(254, 11, Color3.fromRGB(140, 145, 160), false, "info", 18)
+	mkText(274, 11, Color3.fromRGB(255, 105, 110), false, "warn", 18)
+
 	HUD.gui = sg
 end
 
 local function updateHUD()
 	if not HUD.gui or not HUD.gui.Parent then return end
 
-	HUD.crystal.Text = ("[Z] Кристалл: %s   попыток: %d"):format(
+	HUD.crystal.Text = ("[Z] Кристалл   %s   · %d"):format(
 		STATE.crystal.enabled and "ВКЛ" or "выкл", STATE.crystal.shots)
 	HUD.crystal.TextColor3 = STATE.crystal.enabled
-		and Color3.fromRGB(120, 255, 160) or Color3.fromRGB(140, 140, 150)
+		and Color3.fromRGB(236, 237, 242) or Color3.fromRGB(160, 162, 172)
+	HUD.dotC.BackgroundColor3 = STATE.crystal.enabled
+		and Color3.fromRGB(86, 214, 148) or Color3.fromRGB(120, 124, 138)
 
-	HUD.anchor.Text = ("[G] Анчор:    %s   попыток: %d"):format(
+	HUD.anchor.Text = ("[G] Анчор      %s   · %d"):format(
 		STATE.anchor.enabled and "ВКЛ" or "выкл", STATE.anchor.shots)
 	HUD.anchor.TextColor3 = STATE.anchor.enabled
-		and Color3.fromRGB(120, 255, 160) or Color3.fromRGB(140, 140, 150)
+		and Color3.fromRGB(236, 237, 242) or Color3.fromRGB(160, 162, 172)
+	HUD.dotA.BackgroundColor3 = STATE.anchor.enabled
+		and Color3.fromRGB(86, 214, 148) or Color3.fromRGB(120, 124, 138)
 
-	HUD.preset.Text = ("Пресет: %s  (H)"):format(CONFIG.Presets[PRESET_IDX].name)
+	HUD.preset.Text = ("Пресет  %s   · H"):format(CONFIG.Presets[PRESET_IDX].name)
 
 	local cs = pickSource("crystal")
 	HUD.srcC.Text = ("Кристалл источник: %s  (K)"):format(
@@ -142,23 +113,31 @@ local function updateHUD()
 	HUD.srcA.TextColor3 = as and Color3.fromRGB(225, 225, 235)
 		or Color3.fromRGB(255, 120, 120)
 
-	local tgt = STATE.crystal.target or STATE.anchor.target
+	local tgt = STATE.crystal.target or STATE.anchor.target or STATE.killaura.targetObj
 	if tgt and tgt.root and tgt.root.Parent then
 		local own = getOwnRoot()
 		local d = own and math.floor((tgt.root.Position - own.Position).Magnitude) or 0
-		local hp = tgt.health and math.floor(tgt.health) or "?"
-		local mx = tgt.maxHealth and math.floor(tgt.maxHealth) or "?"
-		HUD.target.Text = ("Цель: %s  [%d м]  HP %s/%s%s"):format(
-			tgt.name, d, hp, mx,
-			(tgt.isBoss and "  [БОСС]") or (tgt.isElite and "  [ЭЛИТА]") or "")
+		local hp = tgt.health and math.floor(tgt.health) or 0
+		local mx = tgt.maxHealth and math.floor(tgt.maxHealth) or 0
+		HUD.target.Text = ("%s  · %dм  · %s/%s%s"):format(
+			tgt.name, d, tostring(hp), tostring(mx),
+			(tgt.isBoss and "  BOSS") or (tgt.isElite and "  ELITE") or "")
+		local ratio = (mx > 0) and math.clamp(hp / mx, 0, 1) or 0
+		HUD.hpFill.Size = UDim2.new(ratio, 0, 1, 0)
+		HUD.hpFill.BackgroundColor3 = ratio > 0.5
+			and Color3.fromRGB(86, 214, 148)
+			or (ratio > 0.25 and Color3.fromRGB(255, 190, 90) or Color3.fromRGB(255, 105, 110))
 	else
 		HUD.target.Text = "Цель: —"
+		HUD.hpFill.Size = UDim2.new(0, 0, 1, 0)
 	end
 
-	HUD.info.Text = ("C:%d A:%d бл:%d зар:%d уд:%d | целей:%d | N Kill:%s M Mace:%s | JHUD Lлог"):format(
+	local learned = 0
+	for _ in pairs(ARG_STATS) do learned = learned + 1 end
+	HUD.info.Text = ("источники %d/%d/%d/%d/%d · целей %d · N:%s M:%s · обучено %d"):format(
 		#SOURCES.crystal, #SOURCES.anchor, #SOURCES.block, #SOURCES.charge, #SOURCES.attack, #TARGETS,
-		STATE.killaura.enabled and "ВКЛ" or "выкл",
-		STATE.mace.enabled and "ВКЛ" or "выкл")
+		STATE.killaura.enabled and "on" or "off",
+		STATE.mace.enabled and "on" or "off", learned)
 
 	if STATE.warn and os.clock() - STATE.warnAt < 5 then
 		HUD.warn.Text = STATE.warn
@@ -238,3 +217,53 @@ local function auraLoop(kind)
 		if st.enabled then
 			-- отступ при низком HP
 			local ratio = myHpRatio()
+			if s.disengageHP and ratio and ratio < s.disengageHP then
+				st.enabled = false
+				setWarn(("HP %.0f%% < %.0f%% — %s аура выключена"):format(
+					ratio * 100, s.disengageHP * 100,
+					kind == "crystal" and "Crystal" or "Anchor"))
+			else
+				local ownRoot = getOwnRoot()
+				if ownRoot then
+					local t = selectTarget(s, ownRoot)
+					st.target = t
+					if t then
+						local pos = resolvePosition(s, t)
+						local ok = pcall(function()
+							if kind == "crystal" then
+								fireCrystal(s, t, pos)
+							else
+								fireAnchor(s, t, pos)
+							end
+						end)
+						if not ok then
+							-- ошибка активации → пробуем следующий источник
+							local n = #SOURCES[kind]
+							if n > 1 then
+								SOURCE_INDEX[kind] = ((SOURCE_INDEX[kind] or 1) % n) + 1
+							end
+						end
+						local dly = s.delay; if dly == nil then dly = 0.15 end
+						local jit = s.jitter; if jit == nil then jit = 0 end
+						local waitT = dly + math.random() * jit
+						if waitT > 0 then task.wait(waitT) else RunService.Heartbeat:Wait() end
+					else
+						task.wait(0.12)
+					end
+				else
+					task.wait(0.3)
+				end
+			end
+		else
+			st.target = nil
+			task.wait(0.1)
+		end
+	end
+end
+
+local function pickAttackTool(preferMace)
+	local list = SOURCES.attack or {}
+	local best, bestMace = nil, nil
+	for _, s in ipairs(list) do
+		if s.type == "tool" and s.inst and s.inst.Parent then
+			local n = lowerRU(s.name or "")

@@ -1,53 +1,3 @@
-			if s.disengageHP and ratio and ratio < s.disengageHP then
-				st.enabled = false
-				setWarn(("HP %.0f%% < %.0f%% — %s аура выключена"):format(
-					ratio * 100, s.disengageHP * 100,
-					kind == "crystal" and "Crystal" or "Anchor"))
-			else
-				local ownRoot = getOwnRoot()
-				if ownRoot then
-					local t = selectTarget(s, ownRoot)
-					st.target = t
-					if t then
-						local pos = resolvePosition(s, t)
-						local ok = pcall(function()
-							if kind == "crystal" then
-								fireCrystal(s, t, pos)
-							else
-								fireAnchor(s, t, pos)
-							end
-						end)
-						if not ok then
-							-- ошибка активации → пробуем следующий источник
-							local n = #SOURCES[kind]
-							if n > 1 then
-								SOURCE_INDEX[kind] = ((SOURCE_INDEX[kind] or 1) % n) + 1
-							end
-						end
-						local dly = s.delay; if dly == nil then dly = 0.15 end
-						local jit = s.jitter; if jit == nil then jit = 0 end
-						local waitT = dly + math.random() * jit
-						if waitT > 0 then task.wait(waitT) else RunService.Heartbeat:Wait() end
-					else
-						task.wait(0.12)
-					end
-				else
-					task.wait(0.3)
-				end
-			end
-		else
-			st.target = nil
-			task.wait(0.1)
-		end
-	end
-end
-
-local function pickAttackTool(preferMace)
-	local list = SOURCES.attack or {}
-	local best, bestMace = nil, nil
-	for _, s in ipairs(list) do
-		if s.type == "tool" and s.inst and s.inst.Parent then
-			local n = lowerRU(s.name or "")
 			if n:find("mace", 1, true) or n:find("булава", 1, true) then
 				bestMace = s
 			elseif not best then
@@ -59,26 +9,93 @@ local function pickAttackTool(preferMace)
 	return bestMace or best or pickSource("attack")
 end
 
-local function doSwingAt(pos, preferMace)
-	local src = pickAttackTool(preferMace)
-	if not src then return false end
-	if src.type == "tool" then
-		local ok = ensureEquipped(src.inst)
-		if not ok then return false end
-		if CONFIG.KillAura.aimCamera and pos then
-			aimCamera(pos, CONFIG.KillAura.smoothAim or 0.35)
+-- 🇷🇺 Найти мейс в инвентаре/руке
+local function findMaceTool()
+	local char = player.Character
+	local backpack = player:FindFirstChild("Backpack")
+	for _, container in ipairs({ char, backpack }) do
+		if container then
+			for _, obj in container:GetChildren() do
+				if obj:IsA("Tool") then
+					local n = lowerRU(obj.Name)
+					if n:find("mace", 1, true) or n:find("булав", 1, true) then return obj end
+				end
+			end
 		end
-		pcall(function() src.inst:Activate() end)
-		-- быстрый режим: без VirtualClick по экрану (он медленный и дёргает)
+	end
+	for _, src in ipairs(SOURCES.attack or {}) do
+		if src.type == "tool" and src.inst and src.inst.Parent then
+			local n = lowerRU(src.name or "")
+			if n:find("mace", 1, true) or n:find("булав", 1, true) then return src.inst end
+		end
+	end
+	return nil
+end
+
+-- Текущий предмет в руках (чтобы вернуть после удара мейсом)
+local function heldTool()
+	local char = player.Character
+	if not char then return nil end
+	for _, obj in char:GetChildren() do
+		if obj:IsA("Tool") then return obj end
+	end
+	return nil
+end
+
+local function restoreTool(tool)
+	if not tool or not tool.Parent then return end
+	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if hum then pcall(function() hum:EquipTool(tool) end) end
+end
+
+local function doSwingAt(pos, useMace)
+	if not pos then return false end
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not hum then return false end
+
+	-- плавно доворачиваемся к цели ВСЕГДА (тело, не камера)
+	if CONFIG.KillAura.bodyAim then bodyAim(pos, CONFIG.KillAura.bodyAimSpeed or 14) end
+
+	local previous = heldTool()
+	local mace = useMace and findMaceTool() or nil
+	local tool = mace or previous
+	local srcInfo = nil
+	if not tool then
+		srcInfo = pickSource("attack")
+		if srcInfo and srcInfo.type == "tool" then tool = srcInfo.inst; srcInfo = nil end
+	end
+
+	if tool and tool:IsA("Tool") then
+		if tool ~= previous then
+			pcall(function() hum:EquipTool(tool) end)
+			local ed = CONFIG.KillAura.equipDelay or 0
+			if ed > 0 then task.wait(ed) end
+		end
+		pcall(function() tool:Activate() end)
 		if CONFIG.KillAura.toolClickMode == "Both" or CONFIG.KillAura.toolClickMode == "VirtualClick" then
 			virtualClick(pos)
 		end
+		if mace then
+			-- мейс: удар на падении сильнее — бьём повторно и возвращаем старый предмет
+			pcall(function() tool:Activate() end)
+			local bd = CONFIG.MaceHelper.swapBackDelay or 0
+			if bd > 0 then task.wait(bd) end
+			restoreTool(previous)
+		end
 		return true
 	end
-	if src.type == "remoteEvent" then
-		return pcall(function() src.inst:FireServer(pos) end)
+
+	-- ремоут-атака (Attack/Swing из дампа)
+	srcInfo = srcInfo or pickSource("attack")
+	if srcInfo and (srcInfo.type == "remoteEvent" or srcInfo.type == "remoteFunction") then
+		return activateSource(srcInfo, "attack", { model = char, root = getOwnRoot() }, pos, CONFIG.KillAura)
 	end
-	return activateSource(src, "attack", { model = player.Character, root = getOwnRoot() }, pos, CONFIG.KillAura)
+	if srcInfo and srcInfo.type == "tool" then
+		local ok = ensureEquipped(srcInfo.inst)
+		if ok then pcall(function() srcInfo.inst:Activate() end); return true end
+	end
+	return false
 end
 
 task.spawn(function()
@@ -110,7 +127,7 @@ task.spawn(function()
 				STATE.killaura.target = t and t.name or nil
 				if t and t.root and t.root.Parent then
 					local pos = t.root.Position
-					local preferMace = STATE.mace.enabled
+					local preferMace = STATE.mace.enabled and CONFIG.KillAura.autoMace ~= false
 					if doSwingAt(pos, preferMace) then
 						STATE.killaura.shots = STATE.killaura.shots + 1
 					end
@@ -181,10 +198,15 @@ end)
 -- сканы: работают только пока включена хоть одна аура (иначе спим — оптимизация)
 task.spawn(function()
 	local tFull, tSrc = 0, 0
+	local lastAny = false
 	while true do
 		if not alive() then return end
 		local anyOn = STATE.crystal.enabled or STATE.anchor.enabled or STATE.killaura.enabled or STATE.mace.enabled
 		if anyOn then
+			if not lastAny then -- только что включили — сразу свежий скан
+				tFull, tSrc = 0, 0
+			end
+			lastAny = true
 			local now = os.clock()
 			local full = (now - tFull) >= CONFIG.Scan.FullInterval
 			if full then tFull = now end
@@ -194,9 +216,10 @@ task.spawn(function()
 				pcall(rescanSources)
 				pcall(sourceReport)
 			end
-			task.wait(CONFIG.Scan.Interval)
+			task.wait(full and CONFIG.Scan.Interval or math.max(CONFIG.Scan.Interval, 0.35))
 		else
-			task.wait(0.5) -- всё выключено: ничего не сканируем и не трогаем
+			lastAny = false
+			task.wait(1.0) -- всё выключено: спим и вообще ничего не трогаем
 		end
 	end
 end)

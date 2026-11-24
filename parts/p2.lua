@@ -1,24 +1,3 @@
-
-CONFIG.KillAura = {
-	enabled = false,
-	range = 20,
-	delay = 0,              -- максимально быстро
-	jitter = 0,
-	priority = "Nearest",
-	filter = "All",
-	requireLoS = false,
-	aimCamera = true,
-	smoothAim = 0.25,       -- 0..1, чем больше — тем резче; 0.25 = плавно и стабильно
-	toolClickMode = "Activate", -- без лишних кликов мышью = быстрее и без дёрганий
-	equipDelay = 0,
-}
-
-CONFIG.MaceHelper = {
-	enabled = false,
-	range = 20,
-	jumpPower = 60,
-	fallAttackDelay = 0.15, -- когда начинать бить после прыжка (на падении)
-	onlyMace = false,       -- true = бить только если в руках/инвентаре есть Mace
 }
 
 -- =================================================================
@@ -178,6 +157,18 @@ local function ensureEquipped(tool)
 	return true, true
 end
 
+-- Плавный поворот САМОГО ПЕРСОНАЖА (камера не трогается — не крутится)
+local function bodyAim(pos, speed)
+	local root = getOwnRoot()
+	if not root or not pos then return false end
+	local horizontal = Vector3.new(pos.X, root.Position.Y, pos.Z)
+	if (horizontal - root.Position).Magnitude < 0.6 then return false end
+	local goal = CFrame.lookAt(root.Position, horizontal)
+	local k = 1 - math.exp(-(speed or 14) / 60) -- плавно и независимо от FPS
+	local ok = pcall(function() root.CFrame = root.CFrame:Lerp(goal, math.clamp(k, 0.02, 1)) end)
+	return ok
+end
+
 -- Опциональный поворот камеры к точке (smooth = 0..1, 1 = мгновенно)
 local function aimCamera(pos, smooth)
 	local cam = workspace.CurrentCamera
@@ -238,3 +229,41 @@ local function pressRightClick(worldPos)
 				local okd, down = pcall(function()
 					local rp = RaycastParams.new()
 					rp.FilterType = Enum.RaycastFilterType.Exclude
+					rp.FilterDescendantsInstances = { player.Character }
+					return workspace:Raycast(worldPos + Vector3.new(0, 8, 0), Vector3.new(0, -20, 0), rp)
+				end)
+				if okd and down then hitPos = down.Position end
+			end
+			local target = hitPos or worldPos
+			local okv, vp = pcall(function() return cam:WorldToViewportPoint(target) end)
+			if okv and vp and vp.Z > 0 then
+				sx, sy = math.clamp(vp.X, 0, vs.X), math.clamp(vp.Y, 0, vs.Y)
+			end
+		end
+	end
+	-- 1) VirtualInputManager: кнопка 1 = правая (надёжнее всего в экзекьюторах)
+	local ok = pcall(function()
+		local VIM = game:GetService("VirtualInputManager")
+		VIM:SendMouseButtonEvent(sx, sy, 1, true, game, 1)
+		task.wait(0.03)
+		VIM:SendMouseButtonEvent(sx, sy, 1, false, game, 1)
+	end)
+	if ok then return true end
+	-- 2) хелперы экзекьютора
+	if type(mouse2click) == "function" and pcall(mouse2click) then return true end
+	if type(mouse2down) == "function" and type(mouse2up) == "function" then
+		if pcall(mouse2down) then
+			task.wait(0.03)
+			pcall(mouse2up)
+			return true
+		end
+	end
+	-- 3) последний шанс: тот же VirtualUser, но Button2Down/Up
+	return pcall(function()
+		VirtualUser:CaptureController()
+		VirtualUser:Button2Down(Vector2.new(sx, sy))
+		task.wait(0.03)
+		VirtualUser:Button2Up(Vector2.new(sx, sy))
+	end)
+end
+

@@ -114,11 +114,12 @@ local CONFIG = {
 
 	Scan = {
 		Interval      = 0.5,   -- как часто обновлять список целей (сек)
-		FullInterval  = 2.0,   -- полный обход workspace (сек)
+		FullInterval  = 3.0,   -- полный обход workspace (сек) — реже = меньше лагов
 		SourceRescan  = 5.0,   -- перескан источников: tools/remotes (сек)
 		CloneTemplates    = false, -- АВТО-ВЫДАЧА ВЫКЛ: предметы сами не выдаются
 		CloneAttack       = false, -- НЕ клонировать мечи/топоры/оружия (иначе спам в инвентарь!)
 		CloneFromWorkspace = false, -- искать шаблоны Tool в workspace (дубли!)
+		WorkspaceServices = false, -- дорогой обход workspace: включай, если ремоуты лежат прямо в workspace
 		DumpAll           = true,  -- вывести ВСЕ инструменты/ремоуты игры в консоль (диагностика)
 		RequireModules    = false, -- НЕ require чужие ModuleScript'ы (могут ломать игру/текстуры)
 	},
@@ -205,7 +206,9 @@ CONFIG.Crystal = {
 	twoPhase = true,           -- поставить кристалл -> ударить/взорвать
 	twoPhaseMode = "swing",    -- swing | findAndSwing | none
 	twoPhaseDelay = 0,         -- пауза между постановкой и ударом (0 = сразу)
-	aimCamera = false,         -- без аима, как раньше
+	hitAim = true,             -- аим ТОЛЬКО на взрыв (на поставленный кристалл), не на установку
+	noAttackTool = true,       -- НЕ доставать меч для взрыва: бьём ремоутом/самим кристаллом
+	aimCamera = false,         -- без аима при установке (как просил)
 	smoothAim = 0.35,
 	toolClickMode = "Both",  -- Activate | VirtualClick | Both (Both = клик по позиции цели)
 	placeClick = "Right",      -- ПКМ = ставить (ЛКМ в этой игре ломает!)
@@ -238,3 +241,29 @@ CONFIG.Anchor = {
 	equipDelay = 0.05,
 	argIndex = 1,               -- как и у кристалла: без ротации аргов
 }
+
+CONFIG.KillAura = {
+	enabled = false,
+	range = 24,
+	delay = 0,              -- максимально быстро
+	jitter = 0,
+	priority = "Nearest",
+	filter = "All",
+	requireLoS = false,
+	aimCamera = false,      -- камеру НЕ трогаем (не крутится)
+	bodyAim = true,         -- плавно поворачиваем персонажа к цели
+	bodyAimSpeed = 14,      -- чем больше, тем резче (плавно = 8..14)
+	smoothAim = 0.25,
+	toolClickMode = "Activate", -- без лишних кликов мышью = быстрее и без дёрганий
+	equipDelay = 0,
+	autoMace = true,        -- если мейс включён — килаура сама свапает мейс и бьёт
+}
+
+CONFIG.MaceHelper = {
+	enabled = false,
+	range = 24,
+	jumpPower = 60,
+	fallAttackDelay = 0.08, -- когда начинать бить после прыжка (на падении)
+	onlyMace = false,       -- true = бить только если мейс найден
+	swapBackDelay = 0.04,   -- пауза перед возвратом прежнего предмета в руки
+	bodyAimSpeed = 14,

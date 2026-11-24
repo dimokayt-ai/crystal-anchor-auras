@@ -1,38 +1,3 @@
-	if filter == "Bosses" then return e.isBoss or e.isElite end
-	if filter == "NonBoss" then return not (e.isBoss or e.isElite) end
-	return true -- All
-end
-
-local function isValidTarget(e, s, ownRoot)
-	local tc = CONFIG.Targeting
-	local model = e.model
-	local char = player.Character
-
-	if not model or not model.Parent then return false end
-	if char and (model == char or model:IsDescendantOf(char)) then return false end
-	if e.isPlayer and e.player == player then return false end
-	if e.root and ownRoot and e.root == ownRoot then return false end
-
-	-- своя команда
-	if tc.TeamCheck and e.isPlayer and e.player then
-		if player.Team and e.player.Team == player.Team then return false end
-	end
-
-	-- дружественные по имени / тегу
-	if nameMatches(model.Name, P.Friend) then return false end
-	if hasAnyTag(model, tc.FriendlyTags) then return false end
-
-	-- пропуск по атрибутам (бессмертие и т.п.)
-	for attr, val in pairs(tc.SkipAttributes) do
-		if model:GetAttribute(attr) == val then return false end
-	end
-
-	-- свои призывы/петы
-	if tc.SkipOwner then
-		local own = model:GetAttribute("OwnerId")
-			or model:GetAttribute("OwnerUserId")
-			or model:GetAttribute("Owner")
-		if own == player.UserId or own == player then return false end
 	end
 
 	-- живость
@@ -203,21 +168,28 @@ local function buildArgVariants(phase, t, pos, src)
 	return variants
 end
 
--- Память успешных вариантов аргументов (переживает перезапуск скрипта)
-local SRC_ARG_OK = GENV.AURA_ARG_OK or {}
-GENV.AURA_ARG_OK = SRC_ARG_OK
-local SRC_ARG_FAIL = {} -- неудачи в этой сессии, чтобы не долбить одно и то же
+-- Память аргументов теперь в ARG_STATS (честная статистика по эффекту), см. секцию 5.
 
 local function nextArgs(phase, t, pos, s, src)
 	local vars = buildArgVariants(phase, t, pos, src)
-	local key = ((src and src.name) or "?") .. "|" .. phase
-	local idx = s.argIndex
-	if not idx then
-		-- если уже знаем удачный вариант — пробуем его первым
-		idx = SRC_ARG_OK[key]
-		if not idx then
+	local key = statKey((src and src.name) or "?", phase)
+	local idx
+
+	if s.argIndex then
+		idx = s.argIndex -- жёстко закреплён в конфиге
+	else
+		-- 1 из 6 пробуем новое (исследование), остальное — лучший по реальному эффекту
+		local explore = math.random(6) == 1
+		local best, bestRate = nil, -1
+		for i = 1, #vars do
+			local r = statRate(ARG_STATS[key .. "#" .. i])
+			if r and r > bestRate then best, bestRate = i, r end
+		end
+		if explore or not best then
 			idx = ARG_INDEX[phase] or 1
 			ARG_INDEX[phase] = (idx % #vars) + 1
+		else
+			idx = best
 		end
 	end
 	idx = ((idx - 1) % #vars) + 1
@@ -238,3 +210,60 @@ local function invokeRF(rf, args, timeout)
 	end
 	return done and result
 end
+
+local function activateSource(src, phase, t, pos, s)
+	if not sourceValid(src) then return false end
+
+	if src.type == "tool" then
+		local ok = ensureEquipped(src.inst)
+		if not ok then return false end
+		local mode = s.toolClickMode or "Activate"
+		if s.aimCamera then aimCamera(pos) end
+		-- СТАВИТЬ (кристалл/анчор/блок/заряд) = ПКМ; ЛКМ в этой игре ломает!
+		-- Удар (фаза attack) остаётся ЛКМ — его и нужно ломать/подрывать.
+		local placePhase = (phase == "crystal" or phase == "anchor" or phase == "block" or phase == "charge")
+		if placePhase and (s.placeClick or "Right") == "Right" then
+			-- ПКМ + Activate: разные игры слушают разные сигналы
+			local pok = pressRightClick(pos)
+			pcall(function() src.inst:Activate() end)
+			return pok, nil, nil
+		end
+		if mode == "VirtualClick" or mode == "Both" then
+			virtualClick(pos)
+		end
+		local fired = pcall(function() src.inst:Activate() end)
+		if not fired and mode == "VirtualClick" then
+			fired = pcall(function() src.inst:Activate() end)
+		end
+		return fired, nil, nil
+
+	elseif src.type == "remoteEvent" then
+		local args, idx, key = nextArgs(phase, t, pos, s, src)
+		local ok = pcall(function()
+			src.inst:FireServer(table.unpack(args))
+		end)
+		if ok then scheduleEffectCheck(key, idx, t, pos, phase, src.name) end
+		return ok, idx, key
+
+	elseif src.type == "remoteFunction" then
+		local args, idx, key = nextArgs(phase, t, pos, s, src)
+		local ok = invokeRF(src.inst, args, s.rfTimeout or 2)
+		if ok then scheduleEffectCheck(key, idx, t, pos, phase, src.name) end
+		return ok, idx, key
+
+	elseif src.type == "prompt" then
+		local ok = pcall(function() src.inst:InputHoldBegin() end)
+		if not ok then return false end
+		local hold = src.inst.HoldDuration or 0.5
+		if hold > 0 then task.wait(math.min(hold, 3)) end
+		pcall(function() src.inst:InputHoldEnd() end)
+		return true
+
+	elseif src.type == "module" then
+		if not src.mod then
+			local ok, mod = pcall(require, src.inst)
+			if ok and type(mod) == "table" then src.mod = mod end
+		end
+		if not src.mod or not src.fns or #src.fns == 0 then return false end
+		local idx = ((FN_INDEX[phase] or 0) % #src.fns) + 1
+		FN_INDEX[phase] = idx

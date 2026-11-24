@@ -1,41 +1,3 @@
-					rp.FilterDescendantsInstances = { player.Character }
-					return workspace:Raycast(worldPos + Vector3.new(0, 8, 0), Vector3.new(0, -20, 0), rp)
-				end)
-				if okd and down then hitPos = down.Position end
-			end
-			local target = hitPos or worldPos
-			local okv, vp = pcall(function() return cam:WorldToViewportPoint(target) end)
-			if okv and vp and vp.Z > 0 then
-				sx, sy = math.clamp(vp.X, 0, vs.X), math.clamp(vp.Y, 0, vs.Y)
-			end
-		end
-	end
-	-- 1) VirtualInputManager: кнопка 1 = правая (надёжнее всего в экзекьюторах)
-	local ok = pcall(function()
-		local VIM = game:GetService("VirtualInputManager")
-		VIM:SendMouseButtonEvent(sx, sy, 1, true, game, 1)
-		task.wait(0.03)
-		VIM:SendMouseButtonEvent(sx, sy, 1, false, game, 1)
-	end)
-	if ok then return true end
-	-- 2) хелперы экзекьютора
-	if type(mouse2click) == "function" and pcall(mouse2click) then return true end
-	if type(mouse2down) == "function" and type(mouse2up) == "function" then
-		if pcall(mouse2down) then
-			task.wait(0.03)
-			pcall(mouse2up)
-			return true
-		end
-	end
-	-- 3) последний шанс: тот же VirtualUser, но Button2Down/Up
-	return pcall(function()
-		VirtualUser:CaptureController()
-		VirtualUser:Button2Down(Vector2.new(sx, sy))
-		task.wait(0.03)
-		VirtualUser:Button2Up(Vector2.new(sx, sy))
-	end)
-end
-
 -- Прямая видимость до цели
 local losParams = RaycastParams.new()
 losParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -55,7 +17,7 @@ local function hasLoS(fromPos, targetEntry)
 end
 
 -- =================================================================
--- 5. СОСТОЯНИЕ
+-- 5. СОСТОЯНИЕ + ЧЕСТНОЕ ОБУЧЕНИЕ
 -- =================================================================
 local STATE = {
 	crystal = { enabled = false, shots = 0, target = nil },
@@ -97,6 +59,55 @@ local SOURCE_INDEX  = { crystal = 1, anchor = 1, charge = 1, block = 1, attack =
 local ARG_INDEX     = { crystal = 1, anchor = 1, charge = 1, block = 1 }
 local FN_INDEX      = { crystal = 1, anchor = 1, charge = 1, block = 1 }
 
+-- Честная статистика: успех = реальный эффект (HP упал / объект появился), а не просто pcall.
+local ARG_STATS = GENV.AURA_ARG_STATS or {}
+local SRC_STATS = GENV.AURA_SRC_STATS or {}
+GENV.AURA_ARG_STATS, GENV.AURA_SRC_STATS = ARG_STATS, SRC_STATS
+
+local function statKey(srcName, phase)
+	return tostring(srcName or "?") .. "|" .. tostring(phase or "?")
+end
+
+local function statRate(st)
+	if not st or st.n < 1 then return nil end
+	return (st.s + 1) / (st.n + 2) -- сглаженная доля успеха (Байес)
+end
+
+local function recordStat(tableRef, key, success)
+	local st = tableRef[key]
+	if not st then st = { n = 0, s = 0 }; tableRef[key] = st end
+	st.n = st.n + 1
+	if success then st.s = st.s + 1 end
+	if st.n > 24 then -- забываем старое, учимся под новую ситуацию
+		st.n = st.n * 0.85
+		st.s = st.s * 0.85
+	end
+end
+
+local findPlacedCrystal -- forward, определена ниже
+
+-- Проверка эффекта через 0.12 сек: HP цели / появление кристалла.
+local function scheduleEffectCheck(key, idx, t, pos, phase, srcName, entry)
+	local before = t and tonumber(t.health) or nil
+	local model = t and t.model or nil
+	task.delay(0.12, function()
+		if not alive() then return end
+		local success = false
+		if before and model and model.Parent then
+			local hum = model:FindFirstChildOfClass("Humanoid")
+			local nowHp = hum and hum.Health
+				or tonumber(model:GetAttribute("Health")) or tonumber(model:GetAttribute("HP"))
+			if type(nowHp) == "number" and nowHp < before - 0.5 then success = true end
+		end
+		if not success and (phase == "crystal" or phase == "block") and pos and findPlacedCrystal(pos) then
+			success = true
+		end
+		if key and idx then recordStat(ARG_STATS, key .. "#" .. idx, success) end
+		recordStat(SRC_STATS, statKey(srcName, phase), success)
+		if entry then entry.effect = success and "hit" or "none" end
+	end)
+end
+
 local SOURCES = { crystal = {}, anchor = {}, charge = {}, attack = {} }
 local TARGETS = {}
 
@@ -117,7 +128,7 @@ local function classify(name)
 	return nil
 end
 
-local function scoreSource(name, srcType, exact)
+local function scoreSource(name, srcType, exact, phase)
 	local sc = 0
 	if exact then sc = sc + 100 end
 	if srcType == "tool" then sc = sc + 25
@@ -125,6 +136,9 @@ local function scoreSource(name, srcType, exact)
 	elseif srcType == "remoteFunction" then sc = sc + 15
 	elseif srcType == "prompt" then sc = sc + 10
 	elseif srcType == "module" then sc = sc + 5 end
+	-- бонус за реально подтверждённый эффект в прошлом
+	local rate = statRate(SRC_STATS[statKey(name, phase)])
+	if rate then sc = sc + rate * 35 end
 	return sc
 end
 
@@ -155,7 +169,7 @@ local function rescanSources()
 		local k = tostring(src.inst) .. "|" .. phase
 		if seen[k] then return end
 		seen[k] = true
-		src.score = scoreSource(src.name, src.type, src.exact)
+		src.score = scoreSource(src.name, src.type, src.exact, phase)
 		table.insert(lists[phase], src)
 	end
 
@@ -238,3 +252,18 @@ local function rescanSources()
 							})
 						end
 					end
+				end
+			end
+		end
+	end
+	scanServices(ReplicatedStorage)
+	-- workspace скан дорогой: только изредка и только если реально включено
+	local lastWs = GENV.AURA_LAST_WS_SCAN or 0
+	if CONFIG.Scan.WorkspaceServices and os.clock() - lastWs > 15 then
+		GENV.AURA_LAST_WS_SCAN = os.clock()
+		scanServices(workspace)
+	end
+
+	for phase, list in pairs(lists) do
+		table.sort(list, function(a, b) return a.score > b.score end)
+		SOURCES[phase] = list

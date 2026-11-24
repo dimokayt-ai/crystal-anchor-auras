@@ -1,13 +1,3 @@
-				end
-			end
-		end
-	end
-	scanServices(ReplicatedStorage)
-	scanServices(workspace)
-
-	for phase, list in pairs(lists) do
-		table.sort(list, function(a, b) return a.score > b.score end)
-		SOURCES[phase] = list
 		if (SOURCE_INDEX[phase] or 1) > #list then SOURCE_INDEX[phase] = 1 end
 	end
 end
@@ -197,6 +187,10 @@ local function rescanTargets(full)
 		for _, d in workspace:GetChildren() do
 			consider(d, out, seen)
 		end
+		-- игроки сканируются быстро, без полного GetDescendants
+		for _, pl in Players:GetPlayers() do
+			if pl ~= player and pl.Character then consider(pl.Character, out, seen) end
+		end
 		if full then
 			for _, d in workspace:GetDescendants() do
 				if d:IsA("Model") or d:IsA("Humanoid") or d:IsA("BasePart") then
@@ -238,3 +232,38 @@ end
 local function passFilter(e, filter)
 	if filter == "Players" then return e.isPlayer end
 	if filter == "Mobs" then return not e.isPlayer end
+	if filter == "Bosses" then return e.isBoss or e.isElite end
+	if filter == "NonBoss" then return not (e.isBoss or e.isElite) end
+	return true -- All
+end
+
+local function isValidTarget(e, s, ownRoot)
+	local tc = CONFIG.Targeting
+	local model = e.model
+	local char = player.Character
+
+	if not model or not model.Parent then return false end
+	if char and (model == char or model:IsDescendantOf(char)) then return false end
+	if e.isPlayer and e.player == player then return false end
+	if e.root and ownRoot and e.root == ownRoot then return false end
+
+	-- своя команда
+	if tc.TeamCheck and e.isPlayer and e.player then
+		if player.Team and e.player.Team == player.Team then return false end
+	end
+
+	-- дружественные по имени / тегу
+	if nameMatches(model.Name, P.Friend) then return false end
+	if hasAnyTag(model, tc.FriendlyTags) then return false end
+
+	-- пропуск по атрибутам (бессмертие и т.п.)
+	for attr, val in pairs(tc.SkipAttributes) do
+		if model:GetAttribute(attr) == val then return false end
+	end
+
+	-- свои призывы/петы
+	if tc.SkipOwner then
+		local own = model:GetAttribute("OwnerId")
+			or model:GetAttribute("OwnerUserId")
+			or model:GetAttribute("Owner")
+		if own == player.UserId or own == player then return false end

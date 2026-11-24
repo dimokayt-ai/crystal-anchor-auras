@@ -1,63 +1,3 @@
-
-local function activateSource(src, phase, t, pos, s)
-	if not sourceValid(src) then return false end
-
-	if src.type == "tool" then
-		local ok = ensureEquipped(src.inst)
-		if not ok then return false end
-		local mode = s.toolClickMode or "Activate"
-		if s.aimCamera then aimCamera(pos) end
-		-- СТАВИТЬ (кристалл/анчор/блок/заряд) = ПКМ; ЛКМ в этой игре ломает!
-		-- Удар (фаза attack) остаётся ЛКМ — его и нужно ломать/подрывать.
-		local placePhase = (phase == "crystal" or phase == "anchor" or phase == "block" or phase == "charge")
-		if placePhase and (s.placeClick or "Right") == "Right" then
-			-- ПКМ + Activate: разные игры слушают разные сигналы
-			local pok = pressRightClick(pos)
-			pcall(function() src.inst:Activate() end)
-			return pok, nil, nil
-		end
-		if mode == "VirtualClick" or mode == "Both" then
-			virtualClick(pos)
-		end
-		local fired = pcall(function() src.inst:Activate() end)
-		if not fired and mode == "VirtualClick" then
-			fired = pcall(function() src.inst:Activate() end)
-		end
-		return fired, nil, nil
-
-	elseif src.type == "remoteEvent" then
-		local args, idx, key = nextArgs(phase, t, pos, s, src)
-		local ok = pcall(function()
-			src.inst:FireServer(table.unpack(args))
-		end)
-		-- для placement не помечаем "успех" по факту pcall — ждём подтверждения
-		local placePhase = (phase == "crystal" or phase == "block" or phase == "anchor" or phase == "charge")
-		if ok and not placePhase then SRC_ARG_OK[key] = idx end
-		return ok, idx, key
-
-	elseif src.type == "remoteFunction" then
-		local args, idx, key = nextArgs(phase, t, pos, s, src)
-		local ok = invokeRF(src.inst, args, s.rfTimeout or 2)
-		local placePhase = (phase == "crystal" or phase == "block" or phase == "anchor" or phase == "charge")
-		if ok and not placePhase then SRC_ARG_OK[key] = idx end
-		return ok, idx, key
-
-	elseif src.type == "prompt" then
-		local ok = pcall(function() src.inst:InputHoldBegin() end)
-		if not ok then return false end
-		local hold = src.inst.HoldDuration or 0.5
-		if hold > 0 then task.wait(math.min(hold, 3)) end
-		pcall(function() src.inst:InputHoldEnd() end)
-		return true
-
-	elseif src.type == "module" then
-		if not src.mod then
-			local ok, mod = pcall(require, src.inst)
-			if ok and type(mod) == "table" then src.mod = mod end
-		end
-		if not src.mod or not src.fns or #src.fns == 0 then return false end
-		local idx = ((FN_INDEX[phase] or 0) % #src.fns) + 1
-		FN_INDEX[phase] = idx
 		local fn = src.mod[src.fns[idx]]
 		if type(fn) ~= "function" then return false end
 		-- пробуем варианты: fn(args...) -> fn(mod, args...) -> fn()
@@ -74,7 +14,7 @@ end
 
 -- Поиск только что поставленного кристалла (для добивания)
 local CRYSTAL_FIND_CACHE = { at = 0, part = nil }
-local function findPlacedCrystal(pos)
+function findPlacedCrystal(pos)
 	local now = os.clock()
 	if now - CRYSTAL_FIND_CACHE.at < 0.35 then
 		return CRYSTAL_FIND_CACHE.part
@@ -106,15 +46,16 @@ end
 -- Удар/подрыв после постановки кристалла
 local function hitPlaced(s, t, pos)
 	local target = pos
-	if s.twoPhaseMode == "findAndSwing" then
-		local part = findPlacedCrystal(pos)
-		if part then
-			target = part:IsA("BasePart") and part.Position
-				or (part.PrimaryPart and part.PrimaryPart.Position) or pos
-		end
+	local part = (s.hitAim or s.twoPhaseMode == "findAndSwing") and findPlacedCrystal(pos) or nil
+	if part then
+		target = part:IsA("BasePart") and part.Position
+			or (part.PrimaryPart and part.PrimaryPart.Position) or pos
 	end
+	-- аим только на взрыв, быстро и точно
+	if s.hitAim and target ~= pos then aimCamera(target, 1) end
 	local atk = pickSource("attack")
-	if atk then
+	-- кристалл: меч НЕ экипируем — только Attack-ремоут (или сам кристалл)
+	if atk and not s.noAttackTool then
 		if atk.type == "tool" then
 			local ok = ensureEquipped(atk.inst)
 			if ok then
@@ -129,6 +70,11 @@ local function hitPlaced(s, t, pos)
 			activateSource(atk, "attack", t, target, s)
 			return true
 		end
+	end
+	-- даже без меча шлём Attack-ремоут (быстрый взрыв)
+	if s.noAttackTool and atk and (atk.type == "remoteEvent" or atk.type == "remoteFunction") then
+		activateSource(atk, "attack", t, target, s)
+		return true
 	end
 	-- фолбэк: бьём тем же кристаллом
 	if s.toolClickMode ~= "none" then
@@ -163,7 +109,9 @@ local function fireCrystal(s, t, pos)
 			local bsrc = pickSource("block")
 			if bsrc then
 				local bok, bidx, bkey = activateSource(bsrc, "block", t, pos, s)
-				if bok and bkey and bidx then SRC_ARG_OK[bkey] = bidx end
+				if bok and bidx and bkey then
+					scheduleEffectCheck(bkey, bidx, t, pos, "block", bsrc.name)
+				end
 				STATE.crystal.blockPos = pos
 				STATE.crystal.blockAt = os.clock()
 				local bd = s.blockDelay
@@ -184,15 +132,9 @@ local function fireCrystal(s, t, pos)
 		end
 	end
 	STATE.crystal.shots = STATE.crystal.shots + 1
-	logAction({ kind = "crystal", ok = ok, src = src.name, pos = { pos.X, pos.Y, pos.Z }, target = t.name })
-
-	-- подтверждение: если кристалл реально появился — запоминаем вариант аргумента
-	if ok and key and idx then
-		task.defer(function()
-			local part = findPlacedCrystal(pos)
-			if part then SRC_ARG_OK[key] = idx end
-		end)
-	end
+	local entry = { kind = "crystal", ok = ok, src = src.name, pos = { pos.X, pos.Y, pos.Z }, target = t.name }
+	logAction(entry)
+	if ok then scheduleEffectCheck(key, idx, t, pos, "crystal", src.name, entry) end
 
 	if ok and s.twoPhase and s.twoPhaseMode ~= "none" then
 		local td = s.twoPhaseDelay
@@ -238,3 +180,90 @@ local function fireAnchor(s, t, pos)
 		if atk and atk.type == "tool" and ensureEquipped(atk.inst) then
 			if s.aimCamera then aimCamera(pos) end
 			pcall(function() atk.inst:Activate() end)
+		else
+			-- нет оружия — ещё раз ПКМ по анчору (в некоторых играх это подрывает)
+			activateSource(src, "anchor", t, pos, s)
+		end
+	elseif seq == "charge_then_use" then
+		local csrc = pickSource("charge")
+		if csrc then
+			activateSource(csrc, "charge", t, pos, s)
+			task.wait(ct)
+		end
+		activateSource(src, "anchor", t, pos, s)
+	elseif seq == "use_twice" then
+		activateSource(src, "anchor", t, pos, s)
+		task.wait(ct)
+		activateSource(src, "anchor", t, pos, s)
+	else
+		activateSource(src, "anchor", t, pos, s)
+	end
+	STATE.anchor.shots = STATE.anchor.shots + 1
+	logAction({ kind = "anchor", seq = seq, src = src.name, charge = (pickSource("charge") or {}).name, pos = { pos.X, pos.Y, pos.Z }, target = t.name })
+	return true
+end
+
+-- =================================================================
+-- 10. HUD
+-- =================================================================
+local HUD = {}
+
+local function buildHUD()
+	local pg = player:WaitForChild("PlayerGui", 10)
+	if not pg then return end
+
+	local sg = Instance.new("ScreenGui")
+	sg.Name = "AuraHUD"
+	sg.ResetOnSpawn = false
+	sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	sg.Parent = pg
+
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.fromOffset(344, 300)
+	frame.Position = UDim2.fromOffset(14, 14)
+	frame.BackgroundColor3 = Color3.fromRGB(22, 23, 30)
+	frame.BackgroundTransparency = 0.08
+	frame.BorderSizePixel = 0
+	frame.Parent = sg
+	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 20)
+	local stroke = Instance.new("UIStroke", frame)
+	stroke.Color = Color3.fromRGB(255, 255, 255)
+	stroke.Transparency = 0.87
+	stroke.Thickness = 1
+	local grad = Instance.new("UIGradient", frame)
+	grad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(32, 34, 44)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(16, 17, 23)),
+	})
+	grad.Rotation = 90
+
+	-- перетаскивание за любую точку
+	do
+		local dragging, dragStart, startPos
+		frame.InputBegan:Connect(function(input)
+			local t = input.UserInputType
+			if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
+				dragging = true
+				dragStart = input.Position
+				startPos = frame.Position
+			end
+		end)
+		frame.InputEnded:Connect(function(input)
+			local t = input.UserInputType
+			if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then dragging = false end
+		end)
+		UserInputService.InputChanged:Connect(function(input)
+			if not dragging then return end
+			if not frame.Parent then dragging = false return end
+			local t = input.UserInputType
+			if t == Enum.UserInputType.MouseMovement or t == Enum.UserInputType.Touch then
+				local delta = input.Position - dragStart
+				frame.Position = UDim2.new(
+					startPos.X.Scale, startPos.X.Offset + delta.X,
+					startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+			end
+		end)
+	end
+
+	local function mkText(y, size, color, bold, key, x)
+		local l = Instance.new("TextLabel", frame)
